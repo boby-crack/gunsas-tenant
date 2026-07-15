@@ -32,6 +32,8 @@ class ExpenseResource extends Resource
                 ->label('Kategori Biaya')
                 ->options([
                     'Bensin & Tol' => 'Bensin & Tol',
+                    'Parkir' => 'Parkir',
+                    'Logistik / Kurir' => 'Logistik / Kurir',
                     'Listrik & Air' => 'Listrik & Air',
                     'Gaji / Lemburan Staff' => 'Gaji / Lemburan Staff',
                     'Sewa Tempat / Tenant' => 'Sewa Tempat / Tenant',
@@ -48,10 +50,54 @@ public static function table(Table $table): Table
     return $table
         ->columns([
             Tables\Columns\TextColumn::make('date')->label('Tanggal')->date()->sortable(),
-            Tables\Columns\TextColumn::make('outlet.name')->label('Lokasi/Cabang')->default('Pusat / Global'),
-            Tables\Columns\TextColumn::make('category')->label('Kategori')->searchable(),
-            Tables\Columns\TextColumn::make('amount')->label('Nominal')->money('IDR'),
-            Tables\Columns\TextColumn::make('notes')->label('Keterangan'),
+            Tables\Columns\TextColumn::make('outlet.name')->label('Lokasi/Cabang')->default('Pusat / Global')->searchable()->sortable(),
+            Tables\Columns\TextColumn::make('category')->label('Kategori')->searchable()->sortable(),
+            Tables\Columns\TextColumn::make('amount')->label('Nominal')->money('IDR')->sortable(),
+            Tables\Columns\TextColumn::make('notes')->label('Keterangan')->searchable()->sortable(),
+        ])
+        ->defaultSort('date', 'desc')
+        ->filters([
+            Tables\Filters\SelectFilter::make('outlet_id')
+                ->label('Alokasi Cabang')
+                ->relationship('outlet', 'name')
+                ->placeholder('Pusat / Global')
+                ->searchable()
+                ->preload(),
+
+            Tables\Filters\SelectFilter::make('category')
+                ->label('Kategori')
+                ->options([
+                    'Bensin & Tol' => 'Bensin & Tol',
+                    'Parkir' => 'Parkir',
+                    'Logistik / Kurir' => 'Logistik / Kurir',
+                    'Listrik & Air' => 'Listrik & Air',
+                    'Gaji / Lemburan Staff' => 'Gaji / Lemburan Staff',
+                    'Sewa Tempat / Tenant' => 'Sewa Tempat / Tenant',
+                    'Perlengkapan & Packaging' => 'Perlengkapan & Packaging',
+                    'Lain-lain' => 'Lain-lain',
+                ]),
+
+            Tables\Filters\Filter::make('pusat')
+                ->label('Pusat / Global')
+                ->query(fn ($query) => $query->whereNull('outlet_id')),
+
+            Tables\Filters\Filter::make('date')
+                ->form([
+                    Forms\Components\DatePicker::make('from')->label('Dari Tanggal'),
+                    Forms\Components\DatePicker::make('until')->label('Sampai Tanggal'),
+                ])
+                ->query(fn ($query, array $data) => $query
+                    ->when($data['from'] ?? null, fn ($query, $date) => $query->whereDate('date', '>=', $date))
+                    ->when($data['until'] ?? null, fn ($query, $date) => $query->whereDate('date', '<=', $date))),
+        ])
+        ->actions([
+            Tables\Actions\EditAction::make(),
+            Tables\Actions\DeleteAction::make(),
+        ])
+        ->bulkActions([
+            Tables\Actions\BulkActionGroup::make([
+                Tables\Actions\DeleteBulkAction::make(),
+            ]),
         ]);
 }
     public static function getRelations(): array

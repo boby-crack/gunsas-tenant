@@ -54,8 +54,11 @@ class SaleResource extends Resource
 
                 Section::make('Total Pendapatan Harian Outlet')
                     ->schema([
-                        TextInput::make('grand_total_revenue')->label('Grand Total Pendapatan Kasir')->numeric()->prefix('Rp')->readOnly(),
-                    ]),
+                        TextInput::make('grand_total_revenue')->label('Gross Sales')->numeric()->prefix('Rp')->readOnly(),
+                        TextInput::make('discount_amount')->label('Discount')->numeric()->prefix('Rp')->default(0)->live(onBlur: true)->afterStateUpdated(fn ($set, $get) => self::hitungOmsetGunsas($set, $get)),
+                        TextInput::make('sales_return_amount')->label('Sales Return')->numeric()->prefix('Rp')->default(0)->live(onBlur: true)->afterStateUpdated(fn ($set, $get) => self::hitungOmsetGunsas($set, $get)),
+                        TextInput::make('net_sales')->label('Sales Setelah Diskon & Return')->numeric()->prefix('Rp')->readOnly(),
+                    ])->columns(4),
             ]);
     }
 
@@ -80,20 +83,51 @@ class SaleResource extends Resource
         $set('frozen_subtotal', $frozenSub);
 
         // 4. Kalkulasi Grand Total Akhir
-        $set('grand_total_revenue', $buahSub + $freshSub + $frozenSub);
+        $grossSales = $buahSub + $freshSub + $frozenSub;
+        $discount = floatval($get('discount_amount') ?? 0);
+        $salesReturn = floatval($get('sales_return_amount') ?? 0);
+
+        $set('grand_total_revenue', $grossSales);
+        $set('net_sales', max(0, $grossSales - $discount - $salesReturn));
     }
 
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
-                TextColumn::make('outlet.name')->label('Outlet')->sortable(),
-                TextColumn::make('durianVariety.name')->label('Varian')->sortable(),
+                TextColumn::make('outlet.name')->label('Outlet')->searchable()->sortable(),
+                TextColumn::make('durianVariety.name')->label('Varian')->searchable()->sortable(),
                 TextColumn::make('date')->label('Tanggal')->date()->sortable(),
-                TextColumn::make('buah_sold_kg')->label('Buah Utuh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.'),
-                TextColumn::make('fresh_sold_kg')->label('Daging Fresh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.'),
-                TextColumn::make('frozen_sold_kg')->label('Durpas Frozen (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.'),
-                TextColumn::make('grand_total_revenue')->label('Total Omset')->money('IDR'),
+                TextColumn::make('buah_sold_kg')->label('Buah Utuh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
+                TextColumn::make('fresh_sold_kg')->label('Daging Fresh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
+                TextColumn::make('frozen_sold_kg')->label('Durpas Frozen (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
+                TextColumn::make('grand_total_revenue')->label('Gross Sales')->money('IDR')->sortable(),
+                TextColumn::make('discount_amount')->label('Discount')->money('IDR')->sortable()->toggleable(),
+                TextColumn::make('sales_return_amount')->label('Sales Return')->money('IDR')->sortable()->toggleable(),
+                TextColumn::make('net_sales')->label('Sales Setelah Diskon & Return')->money('IDR')->sortable(),
+            ])
+            ->defaultSort('date', 'desc')
+            ->filters([
+                Tables\Filters\SelectFilter::make('outlet_id')
+                    ->label('Outlet')
+                    ->relationship('outlet', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                Tables\Filters\SelectFilter::make('durian_variety_id')
+                    ->label('Varian')
+                    ->relationship('durianVariety', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                Tables\Filters\Filter::make('date')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Dari Tanggal'),
+                        Forms\Components\DatePicker::make('until')->label('Sampai Tanggal'),
+                    ])
+                    ->query(fn ($query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($query, $date) => $query->whereDate('date', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($query, $date) => $query->whereDate('date', '<=', $date))),
             ])
             ->actions([Tables\Actions\EditAction::make()])
             ->bulkActions([Tables\Actions\BulkActionGroup::make([Tables\Actions\DeleteBulkAction::make()])]);

@@ -9,10 +9,19 @@ class Production extends Model
 {
     use HasFactory;
 
+    public const SOURCE_NORMAL = 'normal';
+    public const SOURCE_RETURN = 'return';
+
+    public const SOURCES = [
+        self::SOURCE_NORMAL => 'Stok Normal',
+        self::SOURCE_RETURN => 'Buah Return',
+    ];
+
     protected $fillable = [
         'outlet_id',
         'durian_variety_id',
         'date',
+        'source_type',
         'qty_buah_butir',
         'qty_buah_kg',
         'qty_kupas_pack',

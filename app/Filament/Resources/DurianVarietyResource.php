@@ -33,13 +33,16 @@ public static function table(Table $table): Table
 {
     return $table
         ->columns([
-            Tables\Columns\TextColumn::make('name')->label('Nama Varian Durian')->weight('bold'),
+            Tables\Columns\TextColumn::make('name')->label('Nama Varian Durian')->searchable()->sortable()->weight('bold'),
             
             Tables\Columns\TextColumn::make('stok_pusat_butir')
                 ->label('Stok Pusat (Butir)')
                 ->getStateUsing(function (DurianVariety $record) {
                     $beli = \App\Models\Purchase::where('durian_variety_id', $record->id)->sum('qty_butir');
-                    $kirim = \App\Models\Shipment::where('durian_variety_id', $record->id)->sum('qty_received_butir');
+                    $kirim = \App\Models\Shipment::where('durian_variety_id', $record->id)
+                        ->where('shipment_direction', 'warehouse_to_outlet')
+                        ->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type'))
+                        ->sum('qty_received_butir');
                     return ($beli - $kirim) . ' Btr';
                 })->color('warning'),
 
@@ -47,9 +50,21 @@ public static function table(Table $table): Table
                 ->label('Stok Pusat (KG)')
                 ->getStateUsing(function (DurianVariety $record) {
                     $beli = \App\Models\Purchase::where('durian_variety_id', $record->id)->sum('qty_kg');
-                    $kirim = \App\Models\Shipment::where('durian_variety_id', $record->id)->sum('qty_sent_kg');
+                    $kirim = \App\Models\Shipment::where('durian_variety_id', $record->id)
+                        ->where('shipment_direction', 'warehouse_to_outlet')
+                        ->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type'))
+                        ->sum('qty_sent_kg');
                     return number_format($beli - $kirim, 3, ',', '.') . ' Kg';
                 }),
+        ])
+        ->defaultSort('name')
+        ->actions([
+            Tables\Actions\EditAction::make(),
+        ])
+        ->bulkActions([
+            Tables\Actions\BulkActionGroup::make([
+                Tables\Actions\DeleteBulkAction::make(),
+            ]),
         ]);
 }
 

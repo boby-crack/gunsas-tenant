@@ -49,8 +49,10 @@ class WhatsappReportResource extends Resource
                             ->label('Jenis Laporan')
                             ->options([
                                 'retur' => 'Retur',
+                                'rijek' => 'Data Rijek',
                                 'kupas' => 'Buah ke Kupas Fresh',
                                 'frozen' => 'Kupas Fresh ke Durpas Frozen',
+                                'opname' => 'Stock Opname',
                             ]),
 
                         Forms\Components\Select::make('status')
@@ -104,15 +106,19 @@ class WhatsappReportResource extends Resource
                 Tables\Columns\TextColumn::make('sender')
                     ->label('Pengirim')
                     ->searchable()
+                    ->sortable()
                     ->placeholder('-'),
 
                 Tables\Columns\TextColumn::make('report_type')
                     ->label('Jenis')
                     ->badge()
+                    ->sortable()
                     ->colors([
                         'warning' => 'retur',
+                        'danger' => 'rijek',
                         'success' => 'kupas',
                         'info' => 'frozen',
+                        'primary' => 'opname',
                     ]),
 
                 Tables\Columns\TextColumn::make('confidence')
@@ -123,6 +129,7 @@ class WhatsappReportResource extends Resource
                 Tables\Columns\TextColumn::make('status')
                     ->label('Status')
                     ->badge()
+                    ->sortable()
                     ->colors([
                         'danger' => 'needs_review',
                         'warning' => 'pending_approval',
@@ -133,12 +140,47 @@ class WhatsappReportResource extends Resource
                 Tables\Columns\TextColumn::make('raw_message')
                     ->label('Pesan')
                     ->limit(80)
-                    ->searchable(),
+                    ->searchable()
+                    ->sortable(),
+            ])
+            ->filters([
+                Tables\Filters\SelectFilter::make('report_type')
+                    ->label('Jenis Laporan')
+                    ->options([
+                        'retur' => 'Retur',
+                        'rijek' => 'Data Rijek',
+                        'kupas' => 'Buah ke Kupas Fresh',
+                        'frozen' => 'Kupas Fresh ke Durpas Frozen',
+                        'opname' => 'Stock Opname',
+                    ]),
+
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('Status')
+                    ->options([
+                        'needs_review' => 'Needs Review',
+                        'pending_approval' => 'Pending Approval',
+                        'approved' => 'Approved',
+                        'rejected' => 'Rejected',
+                    ]),
+
+                Tables\Filters\Filter::make('high_confidence')
+                    ->label('Confidence 90%+')
+                    ->query(fn ($query) => $query->where('confidence', '>=', 90)),
+
+                Tables\Filters\Filter::make('created_at')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Masuk Dari'),
+                        Forms\Components\DatePicker::make('until')->label('Masuk Sampai'),
+                    ])
+                    ->query(fn ($query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($query, $date) => $query->whereDate('created_at', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($query, $date) => $query->whereDate('created_at', '<=', $date))),
             ])
             ->actions([
                 Tables\Actions\Action::make('reparse')
                     ->label('Parse Ulang')
                     ->icon('heroicon-o-arrow-path')
+                    ->visible(fn () => auth()->user()?->canOperate() ?? false)
                     ->action(function (WhatsappReport $record) {
                         $parsed = app(WhatsappReportParser::class)->parse($record->raw_message);
 
@@ -160,7 +202,7 @@ class WhatsappReportResource extends Resource
                     ->label('Approve')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->visible(fn (WhatsappReport $record) => $record->status !== 'approved')
+                    ->visible(fn (WhatsappReport $record) => $record->status !== 'approved' && (auth()->user()?->canOperate() ?? false))
                     ->requiresConfirmation()
                     ->action(fn (WhatsappReport $record) => self::approveReport($record)),
 

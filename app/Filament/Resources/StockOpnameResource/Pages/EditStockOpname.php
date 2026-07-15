@@ -10,6 +10,13 @@ class EditStockOpname extends EditRecord
 {
     protected static string $resource = StockOpnameResource::class;
 
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        $data['opname_mode'] = filled($data['inventory_item_id'] ?? null) ? 'inventory' : 'durian';
+
+        return $data;
+    }
+
     protected function getHeaderActions(): array
     {
         return [

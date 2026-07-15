@@ -2,8 +2,11 @@
 
 namespace App\Livewire;
 
+use App\Models\AiChatMessage;
+use App\Models\AiChatSession;
 use App\Models\Outlet;
 use App\Services\BusinessInsightsCalculator;
+use App\Services\GunsasBusinessDataContext;
 use App\Services\GunsasAiAnalyst;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
@@ -12,45 +15,91 @@ use Throwable;
 
 class AiGunsasChat extends Component
 {
+    private const GREETING = 'Halo, saya AI Gunsas. Tanya aja soal profit, margin, stok, loss KG, retur, atau outlet. Kalau kamu sebut periode atau outlet, saya baca otomatis.';
+
     public bool $isOpen = false;
 
     public string $question = '';
 
     public array $messages = [];
 
+    public array $sessions = [];
+
+    public ?int $activeSessionId = null;
+
+    public ?string $pendingAnswerQuestion = null;
+
     public function mount(): void
     {
-        $this->messages = [
-            [
-                'role' => 'assistant',
-                'text' => 'Halo, saya AI Gunsas. Tanya aja soal profit, margin, stok, loss KG, retur, atau outlet. Kalau kamu sebut periode atau outlet, saya baca otomatis.',
-            ],
-        ];
+        $this->activeSessionId = $this->sessionQuery()->value('id');
     }
 
     public function toggle(): void
     {
         $this->isOpen = ! $this->isOpen;
+
+        if ($this->isOpen) {
+            $this->openCurrentChat();
+        }
+    }
+
+    public function openChat(): void
+    {
+        $this->isOpen = true;
+        $this->openCurrentChat();
+    }
+
+    public function closeChat(): void
+    {
+        $this->isOpen = false;
     }
 
     public function ask(): void
     {
+        if ($this->pendingAnswerQuestion !== null) {
+            return;
+        }
+
         $question = trim($this->question);
 
         if ($question === '') {
             return;
         }
 
+        $this->ensureActiveSession();
+
+        if ($this->messages === []) {
+            $this->loadMessages();
+        }
+
+        $this->storeMessage('user', $question);
+
         $this->messages[] = [
             'role' => 'user',
             'text' => $question,
         ];
         $this->question = '';
+        $this->pendingAnswerQuestion = $question;
+
+        $this->dispatch('ai-gunsas-question-sent');
+    }
+
+    public function answerPending(): void
+    {
+        $question = $this->pendingAnswerQuestion;
+
+        if (! $question) {
+            return;
+        }
 
         try {
+            $filters = $this->filtersFromQuestion($question);
+
             $answer = app(GunsasAiAnalyst::class)->answer(
                 $question,
-                app(BusinessInsightsCalculator::class)->calculate($this->filtersFromQuestion($question)),
+                app(BusinessInsightsCalculator::class)->calculate($filters),
+                app(GunsasBusinessDataContext::class)->build($question, $filters),
+                $this->messages,
             );
         } catch (Throwable $exception) {
             report($exception);
@@ -62,16 +111,205 @@ class AiGunsasChat extends Component
             'role' => 'assistant',
             'text' => $answer,
         ];
+        $this->storeMessage('assistant', $answer);
+
+        $this->pendingAnswerQuestion = null;
+        $this->dispatch('ai-gunsas-answer-received');
     }
 
     public function clearChat(): void
     {
-        $this->messages = [
-            [
-                'role' => 'assistant',
-                'text' => 'Chat dibersihkan. Mau cek bagian mana dulu?',
-            ],
-        ];
+        $this->ensureActiveSession();
+
+        AiChatMessage::query()
+            ->where('ai_chat_session_id', $this->activeSessionId)
+            ->delete();
+
+        $this->messages = [];
+        $this->storeMessage('assistant', 'Chat dibersihkan. Mau cek bagian mana dulu?');
+        $this->loadMessages();
+        $this->pendingAnswerQuestion = null;
+        $this->dispatch('ai-gunsas-answer-received');
+    }
+
+    public function newChat(): void
+    {
+        $session = AiChatSession::create([
+            'user_id' => auth()->id(),
+            'title' => 'Obrolan baru',
+            'last_message_at' => now(),
+        ]);
+
+        $this->activeSessionId = $session->id;
+        $this->messages = [];
+        $this->pendingAnswerQuestion = null;
+        $this->storeMessage('assistant', self::GREETING);
+        $this->loadSessions();
+        $this->loadMessages();
+        $this->dispatch('ai-gunsas-answer-received');
+    }
+
+    public function openCurrentChat(): void
+    {
+        $this->loadSessions();
+
+        if (! $this->activeSessionId) {
+            $latestSession = $this->sessionQuery()->first();
+
+            if ($latestSession) {
+                $this->activeSessionId = $latestSession->id;
+            } else {
+                $this->newChat();
+
+                return;
+            }
+        }
+
+        if ($this->messages === []) {
+            $this->loadMessages();
+        }
+
+        $this->dispatch('ai-gunsas-answer-received');
+    }
+
+    public function selectSession(int $sessionId): void
+    {
+        $session = $this->sessionQuery()
+            ->whereKey($sessionId)
+            ->first();
+
+        if (! $session) {
+            return;
+        }
+
+        $this->activeSessionId = $session->id;
+        $this->pendingAnswerQuestion = null;
+        $this->question = '';
+        $this->loadMessages();
+        $this->dispatch('ai-gunsas-answer-received');
+    }
+
+    public function deleteSession(int $sessionId): void
+    {
+        $session = $this->sessionQuery()
+            ->whereKey($sessionId)
+            ->first();
+
+        if (! $session) {
+            return;
+        }
+
+        $session->delete();
+        $this->loadSessions();
+
+        if ($this->activeSessionId === $sessionId) {
+            $latestSession = $this->sessionQuery()->first();
+
+            if ($latestSession) {
+                $this->selectSession($latestSession->id);
+            } else {
+                $this->newChat();
+            }
+        }
+    }
+
+    public function deleteAllHistory(): void
+    {
+        $this->sessionQuery()->delete();
+
+        $this->activeSessionId = null;
+        $this->sessions = [];
+        $this->messages = [];
+        $this->question = '';
+        $this->pendingAnswerQuestion = null;
+
+        $this->newChat();
+    }
+
+    private function ensureActiveSession(): void
+    {
+        if ($this->activeSessionId && AiChatSession::whereKey($this->activeSessionId)->exists()) {
+            return;
+        }
+
+        $session = AiChatSession::create([
+            'user_id' => auth()->id(),
+            'title' => 'Obrolan baru',
+            'last_message_at' => now(),
+        ]);
+
+        $this->activeSessionId = $session->id;
+        $this->storeMessage('assistant', self::GREETING);
+        $this->loadSessions();
+        $this->loadMessages();
+    }
+
+    private function storeMessage(string $role, string $text): void
+    {
+        if (! $this->activeSessionId) {
+            return;
+        }
+
+        AiChatMessage::create([
+            'ai_chat_session_id' => $this->activeSessionId,
+            'role' => $role,
+            'text' => $text,
+        ]);
+
+        $session = AiChatSession::find($this->activeSessionId);
+
+        if (! $session) {
+            return;
+        }
+
+        $session->last_message_at = now();
+
+        if ($role === 'user' && ($session->title === 'Obrolan baru' || trim($session->title) === '')) {
+            $session->title = Str::limit($text, 42, '');
+        }
+
+        $session->save();
+        $this->loadSessions();
+    }
+
+    private function loadSessions(): void
+    {
+        $this->sessions = $this->sessionQuery()
+            ->limit(20)
+            ->get()
+            ->map(fn (AiChatSession $session) => [
+                'id' => $session->id,
+                'title' => $session->title,
+                'time' => optional($session->last_message_at ?? $session->updated_at)->diffForHumans(),
+            ])
+            ->all();
+    }
+
+    private function loadMessages(): void
+    {
+        if (! $this->activeSessionId) {
+            $this->messages = [];
+
+            return;
+        }
+
+        $this->messages = AiChatMessage::query()
+            ->where('ai_chat_session_id', $this->activeSessionId)
+            ->oldest()
+            ->get(['role', 'text'])
+            ->map(fn (AiChatMessage $message) => [
+                'role' => $message->role,
+                'text' => $message->text,
+            ])
+            ->all();
+    }
+
+    private function sessionQuery()
+    {
+        return AiChatSession::query()
+            ->where('user_id', auth()->id())
+            ->latest('last_message_at')
+            ->latest('id');
     }
 
     private function filtersFromQuestion(string $question): array
@@ -124,7 +362,10 @@ class AiGunsasChat extends Component
             return $this->period($date, $date);
         }
 
-        return $this->period($now->copy()->startOfMonth(), $now);
+        return [
+            'from' => null,
+            'until' => null,
+        ];
     }
 
     private function period(Carbon $from, Carbon $until): array

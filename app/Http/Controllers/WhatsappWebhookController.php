@@ -163,6 +163,16 @@ class WhatsappWebhookController extends Controller
             ], $report ? 200 : 404);
         }
 
+        if ($duplicate = $this->recentDuplicateReport($sender, $message)) {
+            return response()->json([
+                'ok' => true,
+                'duplicate' => true,
+                'id' => $duplicate->id,
+                'status' => $duplicate->status,
+                'report_type' => $duplicate->report_type,
+            ]);
+        }
+
         $parsed = $parser->parse($message);
 
         $report = WhatsappReport::create([
@@ -185,6 +195,16 @@ class WhatsappWebhookController extends Controller
             'confidence' => $report->confidence,
             'parsed_payload' => $report->parsed_payload,
         ]);
+    }
+
+    private function recentDuplicateReport(?string $sender, string $message): ?WhatsappReport
+    {
+        return WhatsappReport::query()
+            ->where('sender', $sender)
+            ->where('raw_message', $message)
+            ->where('created_at', '>=', now()->subMinutes(5))
+            ->latest()
+            ->first();
     }
 
     private function replyFor(WhatsappReport $report): string
@@ -218,8 +238,10 @@ class WhatsappWebhookController extends Controller
     {
         return match ($type) {
             'retur' => 'Retur',
+            'rijek' => 'Data Rijek',
             'kupas' => 'Buah ke Kupas Fresh',
             'frozen' => 'Kupas Fresh ke Durpas Frozen',
+            'opname' => 'Stock Opname',
             default => 'Belum dikenali',
         };
     }
@@ -362,7 +384,16 @@ class WhatsappWebhookController extends Controller
                 'Cat: ' . ($payload['paint_color'] ?? '-'),
                 'Alasan: ' . ($payload['detailed_reason'] ?? '-'),
             ],
+            'rijek' => [
+                'Buah return: ' . $this->formatKg($payload['qty_kg'] ?? null),
+                'Fresh jadi: ' . $this->formatKg($payload['qty_kupas_kg'] ?? null),
+                'Pack fresh: ' . ($payload['qty_kupas_pack'] ?? '-'),
+                'Olahan/reject: ' . $this->formatKg($payload['qty_olahan_kg'] ?? null),
+                'Kode: ' . ($payload['supplier_code'] ?? '-'),
+                'Catatan: ' . ($payload['detailed_reason'] ?? '-'),
+            ],
             'kupas' => [
+                'Sumber: ' . (($payload['source_type'] ?? 'normal') === 'return' ? 'Buah return' : 'Stok normal'),
                 'Buah awal: ' . $this->formatKg($payload['qty_buah_kg'] ?? null),
                 'Fresh jadi: ' . $this->formatKg($payload['qty_kupas_kg'] ?? null),
                 'Pack: ' . ($payload['qty_kupas_pack'] ?? '-'),
@@ -372,8 +403,33 @@ class WhatsappWebhookController extends Controller
                 'Frozen jadi: ' . $this->formatKg($payload['to_qty_kg'] ?? null),
                 'Pack: ' . ($payload['to_qty_pack'] ?? '-'),
             ],
+            'opname' => $this->opnameQuantityLines($payload),
             default => [],
         };
+    }
+
+    private function opnameQuantityLines(array $payload): array
+    {
+        $lines = [];
+
+        foreach ($payload['opname_items'] ?? [] as $item) {
+            $label = match ($item['product_type'] ?? null) {
+                'Buah Utuh' => 'Buah utuh',
+                'Daging Fresh' => 'Kupas fresh',
+                'Daging Frozen' => 'Durpas frozen',
+                default => $item['product_type'] ?? 'Produk durian',
+            };
+
+            $lines[] = $label . ': ' . $this->formatKg($item['physical_qty_kg'] ?? null);
+        }
+
+        $inventoryItems = $payload['inventory_items'] ?? [];
+
+        if (! empty($inventoryItems)) {
+            $lines[] = 'Inventory: ' . count($inventoryItems) . ' item';
+        }
+
+        return $lines;
     }
 
     private function formatKg(mixed $value): string

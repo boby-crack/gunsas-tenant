@@ -86,13 +86,43 @@ class ProductConversionResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('outlet.name')->label('Outlet')->sortable(),
-                Tables\Columns\TextColumn::make('durianVariety.name')->label('Varian')->sortable(),
+                Tables\Columns\TextColumn::make('outlet.name')->label('Outlet')->searchable()->sortable(),
+                Tables\Columns\TextColumn::make('durianVariety.name')->label('Varian')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('date')->label('Tanggal')->date()->sortable(),
-                Tables\Columns\TextColumn::make('from_qty_kg')->label('Fresh Berkurang (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->color('danger'),
-                Tables\Columns\TextColumn::make('to_qty_kg')->label('Frozen Bertambah (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->color('success'),
+                Tables\Columns\TextColumn::make('conversion_type')->label('Tipe')->searchable()->sortable()->toggleable(),
+                Tables\Columns\TextColumn::make('from_qty_kg')->label('Fresh Berkurang (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->color('danger')->sortable(),
+                Tables\Columns\TextColumn::make('to_qty_kg')->label('Frozen Bertambah (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->color('success')->sortable(),
             ])
-            ->filters([])
+            ->defaultSort('date', 'desc')
+            ->filters([
+                Tables\Filters\SelectFilter::make('outlet_id')
+                    ->label('Outlet')
+                    ->relationship('outlet', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                Tables\Filters\SelectFilter::make('durian_variety_id')
+                    ->label('Varian')
+                    ->relationship('durianVariety', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                Tables\Filters\SelectFilter::make('conversion_type')
+                    ->label('Tipe Konversi')
+                    ->options([
+                        'Kupas Fresh ke Kupas Frozen' => 'Kupas Fresh ke Kupas Frozen',
+                        'Lainnya' => 'Lainnya',
+                    ]),
+
+                Tables\Filters\Filter::make('date')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Dari Tanggal'),
+                        Forms\Components\DatePicker::make('until')->label('Sampai Tanggal'),
+                    ])
+                    ->query(fn ($query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($query, $date) => $query->whereDate('date', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($query, $date) => $query->whereDate('date', '<=', $date))),
+            ])
             ->actions([Tables\Actions\EditAction::make()])
             ->bulkActions([Tables\Actions\BulkActionGroup::make([Tables\Actions\DeleteBulkAction::make()])]);
     }

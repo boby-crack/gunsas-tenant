@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Exports\ProductReturnsSelectedExport;
 use App\Filament\Resources\ProductReturnResource\Pages;
 use App\Models\ProductReturn;
 use App\Models\Purchase;
@@ -13,6 +14,8 @@ use Filament\Forms\Components\Section;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ProductReturnResource extends Resource
 {
@@ -109,23 +112,7 @@ class ProductReturnResource extends Resource
                             ->label('Catatan Tambahan Detail Kerusakan'),
                     ]),
 
-                Section::make('Tahap 2: Barang Dikirim ke Supplier')
-                    ->description('Opsional, diisi kalau jumlah yang dikirim ke supplier berbeda dari laporan outlet.')
-                    ->collapsible()
-                    ->schema([
-                        Grid::make(2)->schema([
-                            Forms\Components\TextInput::make('qty_to_supplier_butir')
-                                ->label('Dikirim ke Supplier (Butir)')
-                                ->numeric(),
-
-                            Forms\Components\TextInput::make('qty_to_supplier_kg')
-                                ->label('Dikirim ke Supplier (KG)')
-                                ->numeric()
-                                ->step('0.001'),
-                        ]),
-                    ]),
-
-                Section::make('Tahap 3: Hasil Verifikasi dan Refund Supplier')
+                Section::make('Tahap 2: Hasil Verifikasi dan Refund Supplier')
                     ->description('Diisi ketika klaim sudah dijawab dan diganti oleh supplier.')
                     ->collapsible()
                     ->schema([
@@ -163,11 +150,13 @@ class ProductReturnResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('outlet.name')
                     ->label('Outlet / Varian')
+                    ->searchable()
                     ->sortable()
                     ->description(fn ($record) => $record->durianVariety?->name ?? '-'),
 
                 Tables\Columns\TextColumn::make('supplier_code')
                     ->label('Supplier / Warna Cat')
+                    ->searchable()
                     ->sortable()
                     ->description(fn ($record) => $record->paint_color ? 'Cat: ' . $record->paint_color : 'Tanpa warna cat'),
 
@@ -181,7 +170,27 @@ class ProductReturnResource extends Resource
                     ->getStateUsing(fn ($record) => number_format($record->qty_kg, 3, ',', '.') . ' KG')
                     ->description(fn ($record) => $record->qty_butir . ' Btr (Rp '
                         . number_format($record->qty_kg * ($record->shipment?->modal_price ?? 0), 0, ',', '.')
-                        . ')'),
+                        . ')')
+                    ->sortable(),
+
+                Tables\Columns\TextColumn::make('supplier_accepted_qty_kg')
+                    ->label('Diterima Supplier')
+                    ->getStateUsing(function ($record) {
+                        if ($record->status === 'pending') {
+                            return 'Menunggu QC';
+                        }
+
+                        if ($record->supplier_accepted_qty_kg === null) {
+                            return 'Belum diisi';
+                        }
+
+                        return number_format((float) $record->supplier_accepted_qty_kg, 3, ',', '.') . ' KG';
+                    })
+                    ->description(fn ($record) => $record->supplier_accepted_qty_butir !== null
+                        ? number_format((float) $record->supplier_accepted_qty_butir, 0, ',', '.') . ' Btr'
+                        : null)
+                    ->color(fn ($record) => $record->status === 'pending' ? 'warning' : 'success')
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('rejeksi_supplier')
                     ->label('Ditolak Supplier')
@@ -190,13 +199,18 @@ class ProductReturnResource extends Resource
                             return 'Menunggu QC';
                         }
 
+                        if ($record->supplier_accepted_qty_kg === null) {
+                            return 'Belum diisi';
+                        }
+
                         $rejectedKg = max(0, $record->qty_kg - ($record->supplier_accepted_qty_kg ?? 0));
 
                         return number_format($rejectedKg, 3, ',', '.') . ' KG';
                     })
                     ->color(fn ($record) => $record->status === 'pending'
                         ? 'warning'
-                        : ($record->qty_kg - ($record->supplier_accepted_qty_kg ?? 0) > 0 ? 'danger' : 'gray')),
+                        : ($record->supplier_accepted_qty_kg !== null && $record->qty_kg - $record->supplier_accepted_qty_kg > 0 ? 'danger' : 'gray'))
+                    ->sortable(query: fn ($query, string $direction) => $query->orderByRaw('GREATEST(qty_kg - COALESCE(supplier_accepted_qty_kg, 0), 0) ' . $direction)),
 
                 Tables\Columns\TextColumn::make('loss_amount')
                     ->label('Rugi Bersih (Rp)')
@@ -208,10 +222,74 @@ class ProductReturnResource extends Resource
                         return 'Rp ' . number_format(max(0, $initialAssetValue - $refundAmount), 0, ',', '.');
                     })
                     ->description(fn ($record) => 'Refund: Rp ' . number_format($record->refund_amount ?? 0, 0, ',', '.'))
-                    ->color('danger'),
+                    ->color('danger')
+                    ->sortable(query: fn ($query, string $direction) => $query
+                        ->leftJoin('shipments as return_shipments', 'product_returns.shipment_id', '=', 'return_shipments.id')
+                        ->orderByRaw('GREATEST(product_returns.qty_kg * COALESCE(return_shipments.modal_price, 0) - COALESCE(product_returns.refund_amount, 0), 0) ' . $direction)
+                        ->select('product_returns.*')),
+            ])
+            ->defaultSort('date', 'desc')
+            ->filters([
+                Tables\Filters\SelectFilter::make('outlet_id')
+                    ->label('Outlet')
+                    ->relationship('outlet', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                Tables\Filters\SelectFilter::make('durian_variety_id')
+                    ->label('Varian')
+                    ->relationship('durianVariety', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                Tables\Filters\SelectFilter::make('supplier_code')
+                    ->label('Supplier')
+                    ->options(fn () => ProductReturn::query()
+                        ->whereNotNull('supplier_code')
+                        ->orderBy('supplier_code')
+                        ->pluck('supplier_code', 'supplier_code')
+                        ->all())
+                    ->searchable(),
+
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('Status Supplier')
+                    ->options([
+                        'pending' => 'Menunggu Pemeriksaan Supplier',
+                        'approved_by_supplier' => 'Selesai, Diterima Semua/Sebagian',
+                        'rejected_by_supplier' => 'Ditolak Total oleh Supplier',
+                    ]),
+
+                Tables\Filters\SelectFilter::make('return_reason_type')
+                    ->label('Alasan')
+                    ->options([
+                        'Buah Rusak / Asam' => 'Buah Rusak / Asam',
+                        'Buah Bangkalan' => 'Buah Bangkalan',
+                    ]),
+
+                Tables\Filters\Filter::make('date')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Dari Tanggal'),
+                        Forms\Components\DatePicker::make('until')->label('Sampai Tanggal'),
+                    ])
+                    ->query(fn ($query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($query, $date) => $query->whereDate('date', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($query, $date) => $query->whereDate('date', '<=', $date))),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+            ])
+            ->bulkActions([
+                Tables\Actions\DeleteBulkAction::make(),
+
+                Tables\Actions\BulkAction::make('export_selected')
+                    ->label('Export retur terpilih')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('success')
+                    ->action(fn (Collection $records) => Excel::download(
+                        new ProductReturnsSelectedExport($records),
+                        'retur-terpilih-' . now()->format('Ymd-His') . '.xlsx',
+                    ))
+                    ->deselectRecordsAfterCompletion(),
             ]);
     }
 

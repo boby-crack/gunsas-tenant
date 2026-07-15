@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Concerns;
 
+use App\Exports\ExcelTemplateExport;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Notifications\Notification;
@@ -10,6 +11,18 @@ use Maatwebsite\Excel\Facades\Excel;
 
 trait HasExcelImportAction
 {
+    protected function excelTemplateAction(string $fileName, array $headings, array $sampleRows = []): Action
+    {
+        return Action::make('downloadExcelTemplate')
+            ->label('Download Template')
+            ->icon('heroicon-o-arrow-down-tray')
+            ->color('gray')
+            ->action(fn () => Excel::download(
+                new ExcelTemplateExport($headings, $sampleRows),
+                $fileName,
+            ));
+    }
+
     protected function excelImportAction(string $importClass, string $label = 'Import Excel'): Action
     {
         return Action::make('importExcel')

@@ -3,17 +3,19 @@
 namespace App\Imports;
 
 use App\Models\DurianVariety;
+use App\Models\InventoryItem;
 use App\Models\Outlet;
 use Carbon\Carbon;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use Maatwebsite\Excel\Concerns\WithCalculatedFormulas;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use Throwable;
 
-abstract class BaseExcelImport implements ToModel, WithHeadingRow
+abstract class BaseExcelImport implements ToModel, WithCalculatedFormulas, WithHeadingRow
 {
     protected int $imported = 0;
 
@@ -131,6 +133,47 @@ abstract class BaseExcelImport implements ToModel, WithHeadingRow
         return is_numeric($value) ? $value + 0 : $default;
     }
 
+    protected function kgNumber(array $row, array|string $keys, float|int|null $default = 0): float|int|null
+    {
+        $value = $this->value($row, $keys);
+
+        if ($value === null || $value === '') {
+            return $default;
+        }
+
+        if (is_numeric($value)) {
+            $numeric = $value + 0;
+
+            return abs($numeric) >= 1000 && floor(abs($numeric)) == abs($numeric)
+                ? $numeric / 1000
+                : $numeric;
+        }
+
+        $value = strtolower(trim((string) $value));
+        $value = str_replace(['kg', 'kilogram', ' '], '', $value);
+        $value = preg_replace('/[^0-9,\.\-]/', '', $value) ?: '';
+
+        if ($value === '' || $value === '-') {
+            return $default;
+        }
+
+        $lastComma = strrpos($value, ',');
+        $lastDot = strrpos($value, '.');
+
+        if ($lastComma !== false && $lastDot !== false) {
+            $value = $lastComma > $lastDot
+                ? str_replace('.', '', str_replace(',', '.', $value))
+                : str_replace(',', '', $value);
+        } elseif ($lastComma !== false) {
+            $value = str_replace(',', '.', $value);
+        } elseif (substr_count($value, '.') > 1) {
+            $lastDot = strrpos($value, '.');
+            $value = str_replace('.', '', substr($value, 0, $lastDot)) . substr($value, $lastDot);
+        }
+
+        return is_numeric($value) ? $value + 0 : $default;
+    }
+
     protected function integer(array $row, array|string $keys, int $default = 0): int
     {
         return (int) round((float) $this->number($row, $keys, $default));
@@ -154,8 +197,14 @@ abstract class BaseExcelImport implements ToModel, WithHeadingRow
             throw new \InvalidArgumentException('tanggal wajib diisi');
         }
 
+        $value = $this->normalizeIndonesianDate($value);
+
         foreach (['Y-m-d', 'd/m/Y', 'd-m-Y', 'd.m.Y', 'd/m/y', 'd-m-y', 'd.m.y'] as $format) {
-            $date = Carbon::createFromFormat($format, $value);
+            try {
+                $date = Carbon::createFromFormat($format, $value);
+            } catch (Throwable) {
+                $date = false;
+            }
 
             if ($date !== false) {
                 return $date->toDateString();
@@ -163,6 +212,44 @@ abstract class BaseExcelImport implements ToModel, WithHeadingRow
         }
 
         return Carbon::parse($value)->toDateString();
+    }
+
+    protected function normalizeIndonesianDate(string $value): string
+    {
+        $months = [
+            'januari' => 'January',
+            'jan' => 'January',
+            'februari' => 'February',
+            'feb' => 'February',
+            'maret' => 'March',
+            'mar' => 'March',
+            'april' => 'April',
+            'apr' => 'April',
+            'mei' => 'May',
+            'juni' => 'June',
+            'jun' => 'June',
+            'juli' => 'July',
+            'jul' => 'July',
+            'agustus' => 'August',
+            'agu' => 'August',
+            'aug' => 'August',
+            'september' => 'September',
+            'sep' => 'September',
+            'oktober' => 'October',
+            'okt' => 'October',
+            'oct' => 'October',
+            'november' => 'November',
+            'nov' => 'November',
+            'desember' => 'December',
+            'des' => 'December',
+            'dec' => 'December',
+        ];
+
+        return preg_replace_callback('/\b([A-Za-z]+)\b/', function (array $match) use ($months): string {
+            $key = strtolower($match[1]);
+
+            return $months[$key] ?? $match[1];
+        }, $value) ?? $value;
     }
 
     protected function resolveOutletId(mixed $value, bool $required = true): ?int
@@ -181,14 +268,40 @@ abstract class BaseExcelImport implements ToModel, WithHeadingRow
 
         $needle = $this->normalizeLookup($value);
 
+        $partialMatches = [];
+
         foreach (Outlet::all() as $outlet) {
-            $names = [$outlet->name, ...preg_split('/[\n,;|]+/', (string) $outlet->aliases)];
+            $names = [
+                $outlet->name,
+                $outlet->location,
+                ...preg_split('/[\r\n,;|]+/', (string) $outlet->aliases),
+            ];
 
             foreach ($names as $name) {
-                if ($this->normalizeLookup($name) === $needle) {
+                $candidate = $this->normalizeLookup($name);
+
+                if ($candidate === '') {
+                    continue;
+                }
+
+                if ($candidate === $needle) {
                     return $outlet->id;
                 }
+
+                if (strlen($needle) >= 4 && (str_contains($candidate, $needle) || str_contains($needle, $candidate))) {
+                    $partialMatches[$outlet->id] = $outlet;
+                }
             }
+        }
+
+        if (count($partialMatches) === 1) {
+            return (int) array_key_first($partialMatches);
+        }
+
+        if (count($partialMatches) > 1) {
+            $names = collect($partialMatches)->pluck('name')->implode(', ');
+
+            throw new \InvalidArgumentException("outlet '{$value}' ambigu, cocok dengan: {$names}");
         }
 
         throw new \InvalidArgumentException("outlet '{$value}' tidak ditemukan");
@@ -229,6 +342,39 @@ abstract class BaseExcelImport implements ToModel, WithHeadingRow
         }
 
         return $variety->id;
+    }
+
+    protected function resolveInventoryItemId(mixed $value, bool $required = true): ?int
+    {
+        if ($value === null || trim((string) $value) === '') {
+            if ($required) {
+                throw new \InvalidArgumentException('produk inventory wajib diisi');
+            }
+
+            return null;
+        }
+
+        if (is_numeric($value) && InventoryItem::whereKey((int) $value)->exists()) {
+            return (int) $value;
+        }
+
+        $needle = $this->normalizeLookup($value);
+
+        $item = InventoryItem::query()
+            ->where('is_active', true)
+            ->get()
+            ->first(function (InventoryItem $item) use ($needle) {
+                $name = $this->normalizeLookup($item->name);
+                $sku = $this->normalizeLookup($item->sku);
+
+                return $name === $needle || $sku === $needle || str_contains($name, $needle) || str_contains($needle, $name);
+            });
+
+        if (! $item) {
+            throw new \InvalidArgumentException("produk inventory '{$value}' tidak ditemukan");
+        }
+
+        return $item->id;
     }
 
     protected function normalizeStatus(?string $status): string

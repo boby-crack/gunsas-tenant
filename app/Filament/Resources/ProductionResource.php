@@ -27,6 +27,12 @@ class ProductionResource extends Resource
                 Select::make('outlet_id')->relationship('outlet', 'name')->label('Pilih Outlet')->required(),
                 Select::make('durian_variety_id')->relationship('durianVariety', 'name')->label('Varian Durian')->required(),
                 DatePicker::make('date')->label('Tanggal Produksi')->required()->default(now()),
+                Select::make('source_type')
+                    ->label('Sumber Buah')
+                    ->options(Production::SOURCES)
+                    ->default(Production::SOURCE_NORMAL)
+                    ->required()
+                    ->helperText('Pilih Buah Return kalau bahan bakunya berasal dari retur/no retur supplier.'),
 
                 Section::make('1. Input Buah Utuh (Bahan Baku)')
                     ->schema([
@@ -96,14 +102,47 @@ class ProductionResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('outlet.name')->label('Outlet')->sortable(),
-                TextColumn::make('durianVariety.name')->label('Varian')->sortable(),
+                TextColumn::make('outlet.name')->label('Outlet')->searchable()->sortable(),
+                TextColumn::make('durianVariety.name')->label('Varian')->searchable()->sortable(),
                 TextColumn::make('date')->label('Tanggal')->date()->sortable(),
-                TextColumn::make('qty_buah_kg')->label('Buah Utuh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.'),
-                TextColumn::make('qty_kupas_kg')->label('Fresh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.'),
-                TextColumn::make('qty_olahan_kg')->label('Olahan/Reject (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.'),
-                TextColumn::make('shrinkage_percentage')->label('Susut Kulit/Biji (%)')->suffix('%'),
-                TextColumn::make('multiplier_factor')->label('Pengkali'),
+                TextColumn::make('source_type')
+                    ->label('Sumber')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state) => Production::SOURCES[$state ?: Production::SOURCE_NORMAL] ?? $state)
+                    ->color(fn (?string $state) => $state === Production::SOURCE_RETURN ? 'warning' : 'gray')
+                    ->sortable(),
+                TextColumn::make('qty_buah_kg')->label('Buah Utuh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
+                TextColumn::make('qty_kupas_kg')->label('Fresh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
+                TextColumn::make('qty_olahan_kg')->label('Olahan/Reject (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
+                TextColumn::make('shrinkage_percentage')->label('Susut Kulit/Biji (%)')->suffix('%')->sortable(),
+                TextColumn::make('multiplier_factor')->label('Pengkali')->sortable(),
+            ])
+            ->defaultSort('date', 'desc')
+            ->filters([
+                Tables\Filters\SelectFilter::make('outlet_id')
+                    ->label('Outlet')
+                    ->relationship('outlet', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                Tables\Filters\SelectFilter::make('durian_variety_id')
+                    ->label('Varian')
+                    ->relationship('durianVariety', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                Tables\Filters\SelectFilter::make('source_type')
+                    ->label('Sumber Buah')
+                    ->options(Production::SOURCES),
+
+                Tables\Filters\Filter::make('date')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Dari Tanggal'),
+                        Forms\Components\DatePicker::make('until')->label('Sampai Tanggal'),
+                    ])
+                    ->query(fn ($query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($query, $date) => $query->whereDate('date', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($query, $date) => $query->whereDate('date', '<=', $date))),
             ])
             ->actions([Tables\Actions\EditAction::make()])
             ->bulkActions([Tables\Actions\BulkActionGroup::make([Tables\Actions\DeleteBulkAction::make()])]);

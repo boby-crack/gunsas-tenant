@@ -16,7 +16,7 @@ class Sale extends Model
         'buah_sold_kg', 'buah_sold_butir', 'buah_price_per_kg', 'buah_subtotal',
         'fresh_sold_kg', 'fresh_sold_pack', 'fresh_price_per_kg', 'fresh_subtotal',
         'frozen_sold_kg', 'frozen_sold_pack', 'frozen_price_per_kg', 'frozen_subtotal',
-        'grand_total_revenue'
+        'grand_total_revenue', 'discount_amount', 'sales_return_amount', 'net_sales'
     ];
 
     public function outlet() { return $this->belongsTo(Outlet::class); }
