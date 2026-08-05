@@ -71,6 +71,7 @@ class UserResource extends Resource
         return $table
             ->defaultSort('name')
             ->columns([
+                Tables\Columns\TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('name')
                     ->label('Nama')
                     ->searchable()

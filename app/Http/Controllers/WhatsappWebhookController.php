@@ -164,6 +164,14 @@ class WhatsappWebhookController extends Controller
         }
 
         if ($duplicate = $this->recentDuplicateReport($sender, $message)) {
+            $reply = implode("\n", [
+                'Laporan ini sudah tercatat sebelumnya.',
+                'Draft #' . $duplicate->id . ' statusnya: ' . $duplicate->status . '.',
+                'Ketik detail #' . $duplicate->id . ' kalau mau cek ulang.',
+            ]);
+
+            $this->sendReply($senderClient, $sender, $member, $isGroup, $reply);
+
             return response()->json([
                 'ok' => true,
                 'duplicate' => true,
@@ -241,6 +249,7 @@ class WhatsappWebhookController extends Controller
             'rijek' => 'Data Rijek',
             'kupas' => 'Buah ke Kupas Fresh',
             'frozen' => 'Kupas Fresh ke Durpas Frozen',
+            'fresh_loss' => 'Kupas Fresh Loss / Olahan',
             'opname' => 'Stock Opname',
             default => 'Belum dikenali',
         };
@@ -402,6 +411,11 @@ class WhatsappWebhookController extends Controller
                 'Fresh awal: ' . $this->formatKg($payload['from_qty_kg'] ?? null),
                 'Frozen jadi: ' . $this->formatKg($payload['to_qty_kg'] ?? null),
                 'Pack: ' . ($payload['to_qty_pack'] ?? '-'),
+            ],
+            'fresh_loss' => [
+                'Fresh keluar: ' . $this->formatKg($payload['from_qty_kg'] ?? null),
+                'Pack: ' . ($payload['from_qty_pack'] ?? '-'),
+                'Catatan: ' . ($payload['notes'] ?? '-'),
             ],
             'opname' => $this->opnameQuantityLines($payload),
             default => [],

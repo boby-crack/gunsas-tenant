@@ -11,6 +11,7 @@ use App\Models\Production;
 use App\Models\ProductReturn;
 use App\Models\Purchase;
 use App\Models\Sale;
+use App\Models\SaleItem;
 use App\Models\SalesTarget;
 use App\Models\Shipment;
 use App\Models\StockOpname;
@@ -93,13 +94,14 @@ class GunsasBusinessDataContext
                 ->all(),
             'inventory_items' => InventoryItem::query()
                 ->orderBy('name')
-                ->get(['id', 'name', 'category', 'unit', 'default_unit_cost'])
+                ->get(['id', 'name', 'category', 'unit', 'default_unit_cost', 'is_sellable'])
                 ->map(fn (InventoryItem $item) => [
                     'id' => $item->id,
                     'name' => $item->name,
                     'category' => $item->category,
                     'unit' => $item->unit,
                     'default_unit_cost' => (float) $item->default_unit_cost,
+                    'is_sellable' => (bool) $item->is_sellable,
                 ])
                 ->all(),
         ];
@@ -128,7 +130,7 @@ class GunsasBusinessDataContext
             'by_outlet' => $this->salesByOutlet($base, $netExpression),
             'by_date' => $this->salesByDate($base, $netExpression),
             'detail_rows' => (clone $base)
-                ->with(['outlet:id,name,partner_share_percent', 'durianVariety:id,name'])
+                ->with(['outlet:id,name,partner_share_percent', 'durianVariety:id,name', 'items:id,sale_id,item_name,category,unit,quantity,gross_sales,discount_amount,sales_return_amount,net_sales,total_cost'])
                 ->latest('date')
                 ->latest('id')
                 ->limit(self::DETAIL_LIMIT)
@@ -144,6 +146,17 @@ class GunsasBusinessDataContext
                     'discount' => (float) $sale->discount_amount,
                     'sales_return' => (float) $sale->sales_return_amount,
                     'net_sales' => (float) ($sale->net_sales > 0 ? $sale->net_sales : max(0, $sale->grand_total_revenue - $sale->discount_amount - $sale->sales_return_amount)),
+                    'produk_lain' => $sale->items->map(fn (SaleItem $item) => [
+                        'produk' => $item->item_name,
+                        'kategori' => $item->category,
+                        'qty' => (float) $item->quantity,
+                        'satuan' => $item->unit,
+                        'gross_sales' => (float) $item->gross_sales,
+                        'discount' => (float) $item->discount_amount,
+                        'sales_return' => (float) $item->sales_return_amount,
+                        'net_sales' => (float) ($item->net_sales > 0 ? $item->net_sales : max(0, $item->gross_sales - $item->discount_amount - $item->sales_return_amount)),
+                        'hpp' => (float) $item->total_cost,
+                    ])->all(),
                 ])
                 ->all(),
         ];
@@ -152,7 +165,7 @@ class GunsasBusinessDataContext
     private function salesByProduct(Builder $base, string $netExpression): array
     {
         $rows = (clone $base)
-            ->with(['durianVariety:id,name', 'outlet:id,partner_share_percent'])
+            ->with(['durianVariety:id,name', 'outlet:id,partner_share_percent', 'items.inventoryItem:id,name,category,unit'])
             ->get();
         $products = [];
 
@@ -170,11 +183,25 @@ class GunsasBusinessDataContext
             $this->addProductAggregate($products, 'Buah Utuh', $variety, (float) $sale->buah_sold_kg, $grossByType['Buah Utuh'], $rowGross, $rowNet, $gunsasRate);
             $this->addProductAggregate($products, 'Kupas Fresh', $variety, (float) $sale->fresh_sold_kg, $grossByType['Kupas Fresh'], $rowGross, $rowNet, $gunsasRate);
             $this->addProductAggregate($products, 'Durpas Frozen', $variety, (float) $sale->frozen_sold_kg, $grossByType['Durpas Frozen'], $rowGross, $rowNet, $gunsasRate);
+
+            foreach ($sale->items as $item) {
+                $this->addGenericProductAggregate(
+                    $products,
+                    (string) ($item->item_name ?: $item->inventoryItem?->name ?: 'Produk Lain'),
+                    (string) ($item->category ?: $item->inventoryItem?->category ?: 'produk_jualan'),
+                    (string) ($item->unit ?: $item->inventoryItem?->unit ?: 'pcs'),
+                    (float) $item->quantity,
+                    (float) $item->gross_sales,
+                    (float) ($item->net_sales > 0 ? $item->net_sales : max(0, $item->gross_sales - $item->discount_amount - $item->sales_return_amount)),
+                    $gunsasRate
+                );
+            }
         }
 
         return collect($products)
             ->map(function (array $product): array {
                 $product['avg_price_per_kg'] = $product['kg'] > 0 ? $product['net_sales'] / $product['kg'] : 0;
+                $product['avg_price_per_unit'] = ($product['quantity'] ?? 0) > 0 ? $product['net_sales'] / $product['quantity'] : 0;
 
                 return $product;
             })
@@ -195,6 +222,8 @@ class GunsasBusinessDataContext
             'category' => $category,
             'variety' => $variety,
             'kg' => 0,
+            'quantity' => 0,
+            'unit' => 'kg',
             'gross_sales' => 0,
             'net_sales' => 0,
             'gunsas_revenue' => 0,
@@ -203,9 +232,41 @@ class GunsasBusinessDataContext
 
         $allocatedNet = $rowGross > 0 ? ($gross / $rowGross) * $rowNet : $gross;
         $products[$key]['kg'] += $kg;
+        $products[$key]['quantity'] += $kg;
         $products[$key]['gross_sales'] += $gross;
         $products[$key]['net_sales'] += $allocatedNet;
         $products[$key]['gunsas_revenue'] += $allocatedNet * $gunsasRate;
+    }
+
+    private function addGenericProductAggregate(array &$products, string $name, string $category, string $unit, float $quantity, float $gross, float $net, float $gunsasRate): void
+    {
+        if ($quantity <= 0 && $gross <= 0) {
+            return;
+        }
+
+        $key = 'item|' . $name . '|' . $unit;
+        $products[$key] ??= [
+            'product' => $name,
+            'category' => str($category)->replace('_', ' ')->title()->toString(),
+            'variety' => '-',
+            'kg' => $unit === 'kg' ? 0 : 0,
+            'quantity' => 0,
+            'unit' => $unit,
+            'gross_sales' => 0,
+            'net_sales' => 0,
+            'gunsas_revenue' => 0,
+            'avg_price_per_kg' => 0,
+            'avg_price_per_unit' => 0,
+        ];
+
+        if ($unit === 'kg') {
+            $products[$key]['kg'] += $quantity;
+        }
+
+        $products[$key]['quantity'] += $quantity;
+        $products[$key]['gross_sales'] += $gross;
+        $products[$key]['net_sales'] += $net;
+        $products[$key]['gunsas_revenue'] += $net * $gunsasRate;
     }
 
     private function salesByOutlet(Builder $base, string $netExpression): array

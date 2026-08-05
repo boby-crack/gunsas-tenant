@@ -6,6 +6,8 @@ use App\Filament\Resources\ProductConversionResource\Pages;
 use App\Models\ProductConversion;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -36,15 +38,19 @@ class ProductConversionResource extends Resource
                     
                 Forms\Components\Select::make('conversion_type')
                     ->label('Tipe Alur Konversi')
-                    ->options([
-                        'Kupas Fresh ke Kupas Frozen' => 'Kupas Fresh ke Kupas Frozen (Umur Pajang 1-2 Hari)',
-                        'Lainnya' => 'Lainnya',
-                    ])
-                    ->default('Kupas Fresh ke Kupas Frozen')
+                    ->options(ProductConversion::conversionTypeOptions())
+                    ->default(ProductConversion::TYPE_FRESH_TO_FROZEN)
+                    ->live()
+                    ->afterStateUpdated(function (?string $state, Set $set): void {
+                        if ($state === ProductConversion::TYPE_FRESH_LOSS) {
+                            $set('to_qty_kg', 0);
+                            $set('to_qty_pack', 0);
+                        }
+                    })
                     ->required(),
 
                 Forms\Components\Section::make('Daging Fresh yang Dikurangi (Asal)')
-                    ->description('Fokus utama pada timbangan KG baku, jumlah pack digunakan sebagai pembantu pelaporan.')
+                    ->description('Isi jumlah fresh yang keluar dari stok, baik karena dibekukan maupun karena rusak/olahan.')
                     ->schema([
                         Forms\Components\TextInput::make('from_qty_kg')
                             ->label('Berat Daging Fresh (KG)')
@@ -60,24 +66,27 @@ class ProductConversionResource extends Resource
                     ])->columns(2),
 
                 Forms\Components\Section::make('Daging Frozen yang Didapatkan (Target)')
-                    ->description('Timbangan setelah masuk proses pembekuan.')
+                    ->description('Diisi hanya kalau fresh benar-benar berubah menjadi durpas frozen.')
                     ->schema([
                         Forms\Components\TextInput::make('to_qty_kg')
                             ->label('Berat Jadi Frozen (KG)')
                             ->numeric()
                             ->step('0.001')
-                            ->required()
+                            ->required(fn (Get $get): bool => $get('conversion_type') === ProductConversion::TYPE_FRESH_TO_FROZEN)
+                            ->default(0)
                             ->placeholder('Contoh: 5.245'),
                             
                         Forms\Components\TextInput::make('to_qty_pack')
                             ->label('Jumlah Pack Frozen (Pembantu)')
                             ->numeric()
                             ->default(0),
-                    ])->columns(2),
+                    ])
+                    ->visible(fn (Get $get): bool => $get('conversion_type') === ProductConversion::TYPE_FRESH_TO_FROZEN)
+                    ->columns(2),
 
                 Forms\Components\TextInput::make('notes')
                     ->label('Catatan Alasan Konversi')
-                    ->placeholder('Misal: Sisa display tidak habis dalam 2 hari, dipindah ke freezer.')
+                    ->placeholder('Misal: Sisa display telat frozen, jadi olahan/busuk.')
                     ->maxLength(255),
             ]);
     }
@@ -86,6 +95,7 @@ class ProductConversionResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('outlet.name')->label('Outlet')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('durianVariety.name')->label('Varian')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('date')->label('Tanggal')->date()->sortable(),
@@ -98,21 +108,21 @@ class ProductConversionResource extends Resource
                 Tables\Filters\SelectFilter::make('outlet_id')
                     ->label('Outlet')
                     ->relationship('outlet', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('durian_variety_id')
                     ->label('Varian')
                     ->relationship('durianVariety', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('conversion_type')
                     ->label('Tipe Konversi')
-                    ->options([
-                        'Kupas Fresh ke Kupas Frozen' => 'Kupas Fresh ke Kupas Frozen',
-                        'Lainnya' => 'Lainnya',
-                    ]),
+                    ->multiple()
+                    ->options(ProductConversion::conversionTypeOptions()),
 
                 Tables\Filters\Filter::make('date')
                     ->form([

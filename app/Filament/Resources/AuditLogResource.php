@@ -99,10 +99,12 @@ class AuditLogResource extends Resource
                         ->distinct()
                         ->orderBy('module')
                         ->pluck('module', 'module')
-                        ->all()),
+                        ->all())
+                    ->multiple(),
 
                 Tables\Filters\SelectFilter::make('event')
                     ->label('Event')
+                    ->multiple()
                     ->options([
                         'created' => 'Created',
                         'updated' => 'Updated',

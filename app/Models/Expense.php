@@ -9,7 +9,15 @@ class Expense extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['date', 'outlet_id', 'category', 'amount', 'notes'];
+    protected $fillable = [
+        'date',
+        'outlet_id',
+        'allocation_scope',
+        'allocation_group',
+        'category',
+        'amount',
+        'notes',
+    ];
 
     public function outlet() { return $this->belongsTo(Outlet::class); }
 }

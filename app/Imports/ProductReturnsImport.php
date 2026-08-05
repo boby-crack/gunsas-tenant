@@ -19,8 +19,26 @@ class ProductReturnsImport extends BaseExcelImport
 
         $outletValue = $this->value($row, ['outlet_id', 'outlet', 'nama_outlet', 'cabang']);
         $varietyValue = $this->value($row, ['durian_variety_id', 'varian', 'variety', 'durian', 'jenis']);
-        $dateValue = $this->value($row, ['date', 'tanggal', 'tgl', 'tanggal_retur', 'tgl_retur', 'tanggal_kedatangan', 'tgl_kedatangan']);
-        $status = $this->normalizeStatus($this->text($row, ['status', 'status_supplier'], $existing?->status ?? 'pending'));
+        $dateValue = $this->value($row, [
+            'date',
+            'tanggal',
+            'tgl',
+            'tanggal_retur',
+            'tgl_retur',
+            'tanggal_buka',
+            'tgl_buka',
+            'tanggal_kedatangan',
+            'tgl_kedatangan',
+            'tanggal_datang',
+            'tgl_datang',
+        ]);
+        $status = $this->normalizeStatus($this->text($row, [
+            'status',
+            'status_supplier',
+            'hasil_supplier',
+            'keputusan_supplier',
+            'qc_supplier',
+        ], $existing?->status ?? 'pending'));
 
         $outletId = $outletValue !== null
             ? $this->resolveOutletId($outletValue)
@@ -29,8 +47,24 @@ class ProductReturnsImport extends BaseExcelImport
             ? $this->resolveDurianVarietyId($varietyValue)
             : $existing?->durian_variety_id;
         $date = $dateValue !== null
-            ? $this->date($row, ['date', 'tanggal', 'tgl', 'tanggal_retur', 'tgl_retur', 'tanggal_kedatangan', 'tgl_kedatangan'])
+            ? $this->date($row, [
+                'date',
+                'tanggal',
+                'tgl',
+                'tanggal_retur',
+                'tgl_retur',
+                'tanggal_buka',
+                'tgl_buka',
+                'tanggal_kedatangan',
+                'tgl_kedatangan',
+                'tanggal_datang',
+                'tgl_datang',
+            ])
             : $existing?->date;
+        $arrivalDateValue = $this->value($row, ['tanggal_datang', 'tgl_datang', 'tanggal_kedatangan', 'tgl_kedatangan']);
+        $arrivalDate = $arrivalDateValue !== null
+            ? $this->date($row, ['tanggal_datang', 'tgl_datang', 'tanggal_kedatangan', 'tgl_kedatangan'])
+            : $date;
         $qtyButir = $this->integer($row, ['qty_butir', 'butir', 'jumlah_butir', 'btr', 'butir_diajukan'], $existing?->qty_butir ?? 1);
         $qtyKg = $this->kgNumber($row, ['qty_kg', 'kg', 'berat', 'berat_kg', 'berat_buah', 'berat_kg_diajukan'], $existing?->qty_kg ?? 0);
         $acceptedButirDefault = $existing?->supplier_accepted_qty_butir ?? ($status === 'rejected_by_supplier' ? 0 : null);
@@ -51,7 +85,7 @@ class ProductReturnsImport extends BaseExcelImport
         $attributes = [
             'outlet_id' => $outletId,
             'durian_variety_id' => $varietyId,
-            'shipment_id' => $this->shipmentId($row, $outletId, $varietyId, $date) ?? $existing?->shipment_id,
+            'shipment_id' => $this->shipmentId($row, $outletId, $varietyId, $arrivalDate) ?? $existing?->shipment_id,
             'return_type' => $this->text($row, ['return_type', 'tipe_retur'], 'outlet_to_gudang'),
             'supplier_code' => $this->text($row, ['supplier_code', 'kode_supplier', 'kode_buah', 'kode']),
             'paint_color' => $this->text($row, ['paint_color', 'warna_cat', 'cat']),

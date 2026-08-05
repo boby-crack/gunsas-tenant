@@ -29,6 +29,13 @@ class ProductReturn extends Model
         'refund_amount',
     ];
 
+    public function setSupplierCodeAttribute($value): void
+    {
+        $this->attributes['supplier_code'] = filled($value)
+            ? strtoupper(trim((string) $value))
+            : null;
+    }
+
     public function outlet()
     {
         return $this->belongsTo(Outlet::class);

@@ -56,31 +56,27 @@ class SupplierPerformance extends Page implements HasForms
                             ->label('Supplier')
                             ->options(fn () => $this->supplierOptions())
                             ->placeholder('Semua Supplier')
-                            ->searchable()
-                            ->live(),
+                            ->searchable(),
 
                         Select::make('durian_variety_id')
                             ->label('Varian')
                             ->options(DurianVariety::query()->orderBy('name')->pluck('name', 'id'))
-                            ->placeholder('Semua Varian')
-                            ->live(),
+                            ->placeholder('Semua Varian'),
 
                         DatePicker::make('date_from')
                             ->label('Tanggal Mulai')
-                            ->required()
-                            ->live(onBlur: true),
+                            ->required(),
 
                         DatePicker::make('date_until')
                             ->label('Tanggal Akhir')
-                            ->required()
-                            ->live(onBlur: true),
+                            ->required(),
                     ])
                     ->columns(4),
             ])
             ->statePath('filters');
     }
 
-    public function updatedFilters(): void
+    public function applyFilters(): void
     {
         $this->refreshPerformance();
     }

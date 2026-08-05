@@ -27,6 +27,13 @@ class Purchase extends Model
         'notes',
     ];
 
+    public function setSupplierCodeAttribute($value): void
+    {
+        $this->attributes['supplier_code'] = filled($value)
+            ? strtoupper(trim((string) $value))
+            : null;
+    }
+
     public function durianVariety() { return $this->belongsTo(DurianVariety::class); }
     public function inventoryItem() { return $this->belongsTo(InventoryItem::class); }
 }

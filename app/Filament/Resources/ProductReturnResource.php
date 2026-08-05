@@ -148,6 +148,7 @@ class ProductReturnResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('outlet.name')
                     ->label('Outlet / Varian')
                     ->searchable()
@@ -233,12 +234,14 @@ class ProductReturnResource extends Resource
                 Tables\Filters\SelectFilter::make('outlet_id')
                     ->label('Outlet')
                     ->relationship('outlet', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('durian_variety_id')
                     ->label('Varian')
                     ->relationship('durianVariety', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
@@ -249,10 +252,12 @@ class ProductReturnResource extends Resource
                         ->orderBy('supplier_code')
                         ->pluck('supplier_code', 'supplier_code')
                         ->all())
+                    ->multiple()
                     ->searchable(),
 
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Status Supplier')
+                    ->multiple()
                     ->options([
                         'pending' => 'Menunggu Pemeriksaan Supplier',
                         'approved_by_supplier' => 'Selesai, Diterima Semua/Sebagian',
@@ -261,6 +266,7 @@ class ProductReturnResource extends Resource
 
                 Tables\Filters\SelectFilter::make('return_reason_type')
                     ->label('Alasan')
+                    ->multiple()
                     ->options([
                         'Buah Rusak / Asam' => 'Buah Rusak / Asam',
                         'Buah Bangkalan' => 'Buah Bangkalan',

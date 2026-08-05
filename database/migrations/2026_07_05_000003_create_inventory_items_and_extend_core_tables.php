@@ -87,6 +87,10 @@ return new class extends Migration
 
     private function relaxLegacyDurianColumns(): void
     {
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            return;
+        }
+
         Schema::table('purchases', fn (Blueprint $table) => $table->dropForeign(['durian_variety_id']));
         Schema::table('shipments', fn (Blueprint $table) => $table->dropForeign(['durian_variety_id']));
         Schema::table('stock_opnames', fn (Blueprint $table) => $table->dropForeign(['durian_variety_id']));

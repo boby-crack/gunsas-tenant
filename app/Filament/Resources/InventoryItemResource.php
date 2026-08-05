@@ -18,7 +18,7 @@ class InventoryItemResource extends Resource
 
     protected static ?string $navigationLabel = 'Master Produk';
 
-    protected static ?string $modelLabel = 'Produk Inventory';
+    protected static ?string $modelLabel = 'Master Produk';
 
     protected static ?string $pluralModelLabel = 'Master Produk';
 
@@ -28,69 +28,80 @@ class InventoryItemResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('name')
-                    ->label('Nama Produk')
-                    ->required()
-                    ->maxLength(255),
+                Forms\Components\Section::make('Identitas Produk')
+                    ->schema([
+                        Forms\Components\TextInput::make('name')
+                            ->label('Nama Produk')
+                            ->placeholder('Contoh: Pancake Durian, Thinwall 500ml')
+                            ->required()
+                            ->maxLength(255),
 
-                Forms\Components\TextInput::make('sku')
-                    ->label('Kode / SKU')
-                    ->maxLength(255),
+                        Forms\Components\TextInput::make('sku')
+                            ->label('Kode / SKU')
+                            ->placeholder('Opsional, contoh: PANCAKE-MTH')
+                            ->maxLength(255),
 
-                Forms\Components\Select::make('category')
-                    ->label('Kategori')
-                    ->options([
-                        'buah_utuh' => 'Buah Utuh',
-                        'kupas_fresh' => 'Kupas Fresh',
-                        'durpas_frozen' => 'Durpas Frozen',
-                        'produk_olahan' => 'Produk Olahan',
-                        'packaging' => 'Packaging',
-                        'stiker' => 'Stiker',
-                        'bahan_baku' => 'Bahan Baku',
-                        'operasional' => 'Operasional',
-                        'lainnya' => 'Lainnya',
+                        Forms\Components\Select::make('category')
+                            ->label('Kategori')
+                            ->options(InventoryItem::categoryOptions())
+                            ->helperText('Pancake/brulee masuk Produk Jualan Non-Durian. Thinwall masuk Packaging/Kemasan.')
+                            ->required()
+                            ->default('produk_jualan')
+                            ->live()
+                            ->afterStateUpdated(fn (?string $state, Forms\Set $set) => $set('is_sellable', InventoryItem::isSellableCategory($state))),
+
+                        Forms\Components\Select::make('durian_variety_id')
+                            ->relationship('durianVariety', 'name')
+                            ->label('Varian Durian')
+                            ->helperText('Opsional. Isi hanya kalau produk perlu dibedakan per varian durian.')
+                            ->visible(fn (Forms\Get $get) => in_array($get('category'), InventoryItem::DURIAN_VARIANT_CATEGORIES, true)),
                     ])
-                    ->required()
-                    ->default('lainnya')
-                    ->live(),
+                    ->columns(2),
 
-                Forms\Components\Select::make('unit')
-                    ->label('Satuan')
-                    ->options([
-                        'kg' => 'Kg',
-                        'unit' => 'Unit',
-                        'pcs' => 'Pcs',
-                        'pack' => 'Pack',
-                        'box' => 'Box',
-                        'roll' => 'Roll',
-                        'lembar' => 'Lembar',
-                        'botol' => 'Botol',
-                        'liter' => 'Liter',
-                        'gram' => 'Gram',
-                        'dus' => 'Dus',
-                        'karung' => 'Karung',
+                Forms\Components\Section::make('Stok & Harga Modal')
+                    ->schema([
+                        Forms\Components\Select::make('unit')
+                            ->label('Satuan')
+                            ->options([
+                                'kg' => 'Kg',
+                                'unit' => 'Unit',
+                                'pcs' => 'Pcs',
+                                'pack' => 'Pack',
+                                'box' => 'Box',
+                                'roll' => 'Roll',
+                                'lembar' => 'Lembar',
+                                'botol' => 'Botol',
+                                'liter' => 'Liter',
+                                'gram' => 'Gram',
+                                'dus' => 'Dus',
+                                'karung' => 'Karung',
+                            ])
+                            ->helperText('Satuan stok dan penjualan produk ini.')
+                            ->required()
+                            ->default('pcs'),
+
+                        Forms\Components\TextInput::make('default_unit_cost')
+                            ->label('Modal Default / Satuan')
+                            ->helperText('Isi modal per satuan. Dipakai kalau sistem belum punya average cost dari purchase.')
+                            ->numeric()
+                            ->prefix('Rp')
+                            ->default(0),
+
+                        Forms\Components\Toggle::make('is_sellable')
+                            ->label('Produk Dijual')
+                            ->helperText('Aktifkan kalau produk ini boleh masuk Sales.')
+                            ->default(true),
+
+                        Forms\Components\Toggle::make('is_active')
+                            ->label('Aktif')
+                            ->helperText('Matikan kalau produk sudah tidak dipakai.')
+                            ->default(true),
                     ])
-                    ->required()
-                    ->default('pcs'),
-
-                Forms\Components\Select::make('durian_variety_id')
-                    ->relationship('durianVariety', 'name')
-                    ->label('Varian Durian')
-                    ->helperText('Opsional. Isi hanya kalau produk memang perlu dilacak per varian durian.')
-                    ->visible(fn (Forms\Get $get) => in_array($get('category'), InventoryItem::DURIAN_VARIANT_CATEGORIES, true)),
-
-                Forms\Components\TextInput::make('default_unit_cost')
-                    ->label('Harga Default / Satuan')
-                    ->numeric()
-                    ->prefix('Rp')
-                    ->default(0),
-
-                Forms\Components\Toggle::make('is_active')
-                    ->label('Aktif')
-                    ->default(true),
+                    ->columns(2),
 
                 Forms\Components\Textarea::make('notes')
                     ->label('Catatan')
+                    ->placeholder('Opsional')
                     ->columnSpanFull(),
             ]);
     }
@@ -99,31 +110,26 @@ class InventoryItemResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('name')->label('Produk')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('sku')->label('SKU')->searchable()->sortable(),
-                Tables\Columns\TextColumn::make('category')->label('Kategori')->badge()->sortable(),
+                Tables\Columns\TextColumn::make('category')->label('Kategori')->badge()->sortable()
+                    ->formatStateUsing(fn (?string $state): string => InventoryItem::categoryLabel($state)),
                 Tables\Columns\TextColumn::make('unit')->label('Satuan')->badge()->sortable(),
-                Tables\Columns\TextColumn::make('default_unit_cost')->label('Harga Default')->money('IDR')->sortable(),
+                Tables\Columns\TextColumn::make('default_unit_cost')->label('Modal Default')->money('IDR')->sortable(),
                 Tables\Columns\IconColumn::make('is_active')->label('Aktif')->boolean(),
+                Tables\Columns\IconColumn::make('is_sellable')->label('Dijual')->boolean()->sortable(),
             ])
             ->defaultSort('name')
             ->filters([
                 Tables\Filters\SelectFilter::make('category')
                     ->label('Kategori')
-                    ->options([
-                        'buah_utuh' => 'Buah Utuh',
-                        'kupas_fresh' => 'Kupas Fresh',
-                        'durpas_frozen' => 'Durpas Frozen',
-                        'produk_olahan' => 'Produk Olahan',
-                        'packaging' => 'Packaging',
-                        'stiker' => 'Stiker',
-                        'bahan_baku' => 'Bahan Baku',
-                        'operasional' => 'Operasional',
-                        'lainnya' => 'Lainnya',
-                    ]),
+                    ->multiple()
+                    ->options(InventoryItem::categoryOptions()),
 
                 Tables\Filters\SelectFilter::make('unit')
                     ->label('Satuan')
+                    ->multiple()
                     ->options([
                         'kg' => 'Kg',
                         'unit' => 'Unit',
@@ -143,6 +149,12 @@ class InventoryItemResource extends Resource
                     ->label('Status Aktif')
                     ->trueLabel('Aktif')
                     ->falseLabel('Nonaktif')
+                    ->native(false),
+
+                Tables\Filters\TernaryFilter::make('is_sellable')
+                    ->label('Produk Dijual')
+                    ->trueLabel('Dijual')
+                    ->falseLabel('Tidak Dijual')
                     ->native(false),
             ])
             ->actions([

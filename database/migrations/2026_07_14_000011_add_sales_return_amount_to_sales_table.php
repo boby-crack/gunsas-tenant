@@ -15,10 +15,14 @@ return new class extends Migration
                 ->after('discount_amount');
         });
 
+        $expression = DB::connection()->getDriverName() === 'sqlite'
+            ? 'MAX(grand_total_revenue - discount_amount - net_sales, 0)'
+            : 'GREATEST(grand_total_revenue - discount_amount - net_sales, 0)';
+
         DB::table('sales')
             ->where('net_sales', '>', 0)
             ->update([
-                'sales_return_amount' => DB::raw('GREATEST(grand_total_revenue - discount_amount - net_sales, 0)'),
+                'sales_return_amount' => DB::raw($expression),
             ]);
     }
 

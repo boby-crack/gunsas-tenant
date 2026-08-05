@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\DurianVariety;
 use App\Models\InventoryItem;
 use App\Models\Outlet;
+use App\Models\ProductConversion;
 use App\Models\Production;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
@@ -60,6 +61,7 @@ class WhatsappReportParser
             'rijek' => array_merge($payload, $this->parseRijek($normalized, $lineMessage)),
             'kupas' => array_merge($payload, $this->parseKupas($normalized, $lineMessage)),
             'frozen' => array_merge($payload, $this->parseFrozen($normalized, $lineMessage)),
+            'fresh_loss' => array_merge($payload, $this->parseFreshLoss($normalized, $lineMessage)),
             'opname' => array_merge($payload, $this->parseOpname($lineMessage)),
             default => $payload,
         };
@@ -187,7 +189,7 @@ class WhatsappReportParser
             ?? $this->numberAfter(['berat akhir', 'durpas', 'frozen kg'], $message);
 
         return [
-            'conversion_type' => 'Kupas Fresh ke Kupas Frozen',
+            'conversion_type' => ProductConversion::TYPE_FRESH_TO_FROZEN,
             'from_qty_kg' => $fromKg,
             'from_qty_pack' => $this->numberAfter(['pack fresh', 'fresh pack'], $message, false) ?? 0,
             'to_qty_kg' => $toKg,
@@ -195,43 +197,54 @@ class WhatsappReportParser
         ];
     }
 
+    private function parseFreshLoss(string $message, string $lineMessage): array
+    {
+        $fromKg = $this->gramLikeNumberFromField(['berat fresh', 'berat kupas fresh', 'kupas fresh kg', 'fresh kg', 'berat awal'], $lineMessage)
+            ?? $this->gramLikeNumberAfter(['berat fresh', 'berat kupas fresh', 'fresh busuk', 'fresh rusak', 'fresh olahan', 'fresh'], $message)
+            ?? $this->firstKg($message);
+        $notes = $this->fieldValue(['keterangan', 'alasan', 'ket.', 'ket', 'note'], $lineMessage)
+            ?? $this->textAfter(['keterangan', 'alasan', 'ket', 'note'], $message)
+            ?? 'Fresh busuk / olahan dari WhatsApp';
+
+        return [
+            'conversion_type' => ProductConversion::TYPE_FRESH_LOSS,
+            'from_qty_kg' => $fromKg,
+            'from_qty_pack' => $this->numberFromField(['pack fresh', 'fresh pack', 'kupas fresh pack'], $lineMessage, false)
+                ?? $this->packCount($message)
+                ?? 0,
+            'to_qty_kg' => 0,
+            'to_qty_pack' => 0,
+            'notes' => $notes,
+        ];
+    }
+
     private function parseOpname(string $lineMessage): array
     {
-        $durianItems = [];
+        $durianItems = $this->durianOpnameItemsFromText($lineMessage);
 
-        if (($kg = $this->numberFromOpnameField(['buah utuh kg'], $lineMessage)) !== null) {
-            $durianItems[] = [
-                'product_type' => 'Buah Utuh',
-                'physical_qty_kg' => $kg,
-                'physical_qty_butir' => $this->numberFromOpnameField(['buah utuh butir'], $lineMessage, false),
-            ];
-        }
-
-        if (($kg = $this->numberFromOpnameField(['kupas fresh kg'], $lineMessage)) !== null) {
-            $durianItems[] = [
-                'product_type' => 'Daging Fresh',
-                'physical_qty_kg' => $kg,
-                'physical_qty_pack' => $this->numberFromOpnameField(['kupas fresh pack'], $lineMessage, false),
-            ];
-        }
-
-        if (($kg = $this->numberFromOpnameField(['durpas frozen kg'], $lineMessage)) !== null) {
-            $durianItems[] = [
-                'product_type' => 'Daging Frozen',
-                'physical_qty_kg' => $kg,
-                'physical_qty_pack' => $this->numberFromOpnameField(['durpas frozen pack'], $lineMessage, false),
-            ];
+        foreach ($this->additionalDurianOpnameBlocks($lineMessage) as $block) {
+            $durianItems = array_merge(
+                $durianItems,
+                $this->durianOpnameItemsFromText($block['text'], $block['variety']),
+            );
         }
 
         $inventoryItems = [];
 
         foreach ([
             'thinwall' => 'Thinwall',
+            'thinwal' => 'Thinwall',
             'stiker batang' => 'Stiker Batang',
             'stiker durpas' => 'Stiker Durpas',
             'sendok tester' => 'Sendok Tester',
             'tusuk gigi' => 'Tusuk Gigi',
             'sarung tangan plastik' => 'Sarung Tangan Plastik',
+            'tissue' => 'tissue',
+            'tisu' => 'tissue',
+            'karet' => 'karet',
+            'sticker batang' => 'Stiker Batang',
+            'sticker durpas' => 'Stiker Durpas',
+
         ] as $label => $name) {
             $value = $this->fieldValue([$label], $lineMessage)
                 ?? $this->opnameTextValue($label, $lineMessage);
@@ -263,6 +276,75 @@ class WhatsappReportParser
         ];
     }
 
+    private function durianOpnameItemsFromText(string $message, ?array $variety = null): array
+    {
+        $items = [];
+        $varietyData = $variety ? [
+            'durian_variety_id' => $variety['id'] ?? null,
+            'durian_variety_name' => $variety['name'] ?? null,
+        ] : [];
+
+        if (($kg = $this->numberFromOpnameField(['buah utuh kg'], $message)) !== null) {
+            $items[] = [
+                ...$varietyData,
+                'product_type' => 'Buah Utuh',
+                'physical_qty_kg' => $kg,
+                'physical_qty_butir' => $this->numberFromOpnameField(['buah utuh butir'], $message, false),
+            ];
+        }
+
+        if (($kg = $this->numberFromOpnameField(['kupas fresh kg'], $message)) !== null) {
+            $items[] = [
+                ...$varietyData,
+                'product_type' => 'Daging Fresh',
+                'physical_qty_kg' => $kg,
+                'physical_qty_pack' => $this->numberFromOpnameField(['kupas fresh pack'], $message, false),
+            ];
+        }
+
+        if (($kg = $this->numberFromOpnameField(['durpas frozen kg'], $message)) !== null) {
+            $items[] = [
+                ...$varietyData,
+                'product_type' => 'Daging Frozen',
+                'physical_qty_kg' => $kg,
+                'physical_qty_pack' => $this->numberFromOpnameField(['durpas frozen pack'], $message, false),
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * @return array<int, array{variety: array{id: int, name: string, score: int}|null, text: string}>
+     */
+    private function additionalDurianOpnameBlocks(string $message): array
+    {
+        if (! preg_match_all('/^durian\s+([^\n:]+)\s*:\s*\n(.*?)(?=^durian\s+[^\n:]+\s*:|\z)/msu', $message, $matches, PREG_SET_ORDER)) {
+            return [];
+        }
+
+        $varieties = DurianVariety::all(['id', 'name']);
+
+        return collect($matches)
+            ->map(function (array $match) use ($varieties): array {
+                $varietyText = $this->normalize($match[1]);
+
+                if (Str::contains($varietyText, ['blacktron', 'black thron', 'blackthorn'])) {
+                    $varietyText = 'blackthorn lokal';
+                }
+
+                $variety = $this->matchModel($varietyText, $varieties, 20);
+
+                return [
+                    'variety' => $variety,
+                    'text' => trim($match[2]),
+                ];
+            })
+            ->filter(fn (array $block): bool => $block['text'] !== '')
+            ->values()
+            ->all();
+    }
+
     private function detectType(string $message): ?string
     {
         if (
@@ -285,6 +367,13 @@ class WhatsappReportParser
 
         if (Str::contains($message, ['retur', 'return', 'rusak', 'asam', 'bangkalan'])) {
             return 'retur';
+        }
+
+        if (
+            Str::contains($message, ['fresh', 'kupas'])
+            && Str::contains($message, ['olahan', 'busuk', 'loss', 'reject', 'rijek', 'rusak'])
+        ) {
+            return 'fresh_loss';
         }
 
         if (Str::contains($message, ['frozen', 'durpas', 'beku', 'freezer'])) {
@@ -398,6 +487,7 @@ class WhatsappReportParser
             'rijek' => ['outlet_id', 'durian_variety_id', 'qty_kg', 'qty_buah_kg'],
             'kupas' => ['outlet_id', 'durian_variety_id', 'qty_buah_kg', 'qty_kupas_kg'],
             'frozen' => ['outlet_id', 'durian_variety_id', 'from_qty_kg', 'to_qty_kg'],
+            'fresh_loss' => ['outlet_id', 'durian_variety_id', 'from_qty_kg'],
             'opname' => ['outlet_id'],
             default => ['report_type'],
         };
@@ -408,7 +498,10 @@ class WhatsappReportParser
             $hasDurianItems = ! empty($payload['opname_items'] ?? []);
             $hasInventoryItems = ! empty($payload['inventory_items'] ?? []);
 
-            if ($hasDurianItems && blank($payload['durian_variety_id'] ?? null)) {
+            $hasDurianVariety = filled($payload['durian_variety_id'] ?? null)
+                || collect($payload['opname_items'] ?? [])->every(fn (array $item): bool => filled($item['durian_variety_id'] ?? null));
+
+            if ($hasDurianItems && ! $hasDurianVariety) {
                 $missing[] = 'durian_variety_id';
             }
 
@@ -464,7 +557,7 @@ class WhatsappReportParser
 
     private function numberAfter(array $labels, string $message, bool $allowDecimal = true): ?float
     {
-        $numberPattern = $allowDecimal ? '(\d+(?:[\.,]\d+)?)' : '(\d+)';
+        $numberPattern = $allowDecimal ? '(\d+(?:[\.,]\s*\d+)?)' : '(\d+)';
 
         foreach ($labels as $label) {
             $label = preg_quote($label, '/');
@@ -486,7 +579,7 @@ class WhatsappReportParser
         foreach ($labels as $label) {
             $label = preg_quote($label, '/');
 
-            if (preg_match('/' . $label . '\s*[:=\-]?\s*(\d+(?:[\.,]\d+)?)/u', $message, $matches)) {
+            if (preg_match('/' . $label . '\s*[:=\-]?\s*(\d+(?:[\.,]\s*\d+)?)/u', $message, $matches)) {
                 return $this->normalizeGramLikeNumber($matches[1]);
             }
         }
@@ -501,7 +594,7 @@ class WhatsappReportParser
 
     private function quantityFromInventoryValue(string $value): ?float
     {
-        if (! preg_match('/(\d+(?:[\.,]\d+)?)/u', $value, $matches)) {
+        if (! preg_match('/(\d+(?:[\.,]\s*\d+)?)/u', $value, $matches)) {
             return null;
         }
 
@@ -536,7 +629,7 @@ class WhatsappReportParser
             return null;
         }
 
-        $numberPattern = $allowDecimal ? '/(\d+(?:[\.,]\d+)?)/' : '/(\d+)/';
+        $numberPattern = $allowDecimal ? '/(\d+(?:[\.,]\s*\d+)?)/' : '/(\d+)/';
 
         if (preg_match($numberPattern, $value, $matches)) {
             return $this->normalizeNumber($matches[1]);
@@ -553,7 +646,7 @@ class WhatsappReportParser
             return null;
         }
 
-        if (preg_match('/(\d+(?:[\.,]\d+)?)/', $value, $matches)) {
+        if (preg_match('/(\d+(?:[\.,]\s*\d+)?)/', $value, $matches)) {
             return $this->normalizeGramLikeNumber($matches[1]);
         }
 
@@ -575,6 +668,10 @@ class WhatsappReportParser
             'sendok tester',
             'tusuk gigi',
             'sarung tangan plastik',
+            'tissue',
+            'tisu',
+            'karet',
+
         ];
 
         $nextLabels = collect($labels)
@@ -697,6 +794,7 @@ class WhatsappReportParser
 
     private function normalizeNumber(string $value): float
     {
+        $value = preg_replace('/(?<=\d)[\.,]\s+(?=\d)/', '.', $value) ?? $value;
         $value = str_replace(',', '.', $value);
 
         if (! str_contains($value, '.') && strlen($value) > 3) {
@@ -708,6 +806,7 @@ class WhatsappReportParser
 
     private function normalizeGramLikeNumber(string $value): float
     {
+        $value = preg_replace('/(?<=\d)[\.,]\s+(?=\d)/', '.', $value) ?? $value;
         $normalized = str_replace(',', '.', $value);
 
         if (! str_contains($normalized, '.')) {

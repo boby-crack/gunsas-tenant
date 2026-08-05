@@ -4,12 +4,9 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\StockOpnameResource\Pages;
 use App\Models\InventoryItem;
-use App\Models\ProductConversion;
-use App\Models\Production;
-use App\Models\Sale;
-use App\Models\Shipment;
 use App\Models\StockOpname;
 use App\Services\InventoryItemStockCalculator;
+use App\Services\StockSnapshotCalculator;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -222,7 +219,7 @@ class StockOpnameResource extends Resource
             default => 0,
         };
 
-        $systemQty = max(0, $theoreticalStock);
+        $systemQty = $theoreticalStock;
         $physicalQty = (float) $get('physical_qty_kg');
 
         $set('system_qty_kg', round($systemQty, 3));
@@ -242,95 +239,36 @@ class StockOpnameResource extends Resource
 
     private static function calculateWholeFruitStock(int $outletId, int $varietyId, mixed $date = null): float
     {
-        $shipmentKg = Shipment::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('shipment_direction', 'warehouse_to_outlet')
-            ->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type'))
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_sent_kg');
+        if (! $date) {
+            return 0;
+        }
 
-        $soldKg = Sale::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('buah_sold_kg');
-
-        $peeledKg = Production::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_buah_kg');
-
-        return $shipmentKg - $soldKg - $peeledKg;
+        return app(StockSnapshotCalculator::class)->durianStockForOpnameDate((string) $date, $outletId, $varietyId, 'Buah Utuh');
     }
 
     private static function calculateFreshStock(int $outletId, int $varietyId, mixed $date = null): float
     {
-        $producedKg = Production::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_kupas_kg');
+        if (! $date) {
+            return 0;
+        }
 
-        $soldKg = Sale::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('fresh_sold_kg');
-
-        $convertedKg = ProductConversion::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('conversion_type', 'Kupas Fresh ke Kupas Frozen')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('from_qty_kg');
-
-        $shipmentInKg = Shipment::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('shipment_direction', 'warehouse_to_outlet')
-            ->where('product_type', 'Daging Fresh')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_received_kg');
-
-        $shipmentOutKg = Shipment::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('shipment_direction', 'outlet_to_warehouse')
-            ->where('product_type', 'Daging Fresh')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_sent_kg');
-
-        return $producedKg + $shipmentInKg - $soldKg - $convertedKg - $shipmentOutKg;
+        return app(StockSnapshotCalculator::class)->durianStockForOpnameDate((string) $date, $outletId, $varietyId, 'Daging Fresh');
     }
 
     private static function calculateFrozenStock(int $outletId, int $varietyId, mixed $date = null): float
     {
-        $producedKg = ProductConversion::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('conversion_type', 'Kupas Fresh ke Kupas Frozen')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('to_qty_kg');
+        if (! $date) {
+            return 0;
+        }
 
-        $soldKg = Sale::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('frozen_sold_kg');
-
-        $shipmentInKg = Shipment::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('shipment_direction', 'warehouse_to_outlet')
-            ->where('product_type', 'Daging Frozen')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_received_kg');
-
-        $shipmentOutKg = Shipment::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('shipment_direction', 'outlet_to_warehouse')
-            ->where('product_type', 'Daging Frozen')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_sent_kg');
-
-        return $producedKg + $shipmentInKg - $soldKg - $shipmentOutKg;
+        return app(StockSnapshotCalculator::class)->durianStockForOpnameDate((string) $date, $outletId, $varietyId, 'Daging Frozen');
     }
 
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('outlet.name')->label('Outlet')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('date')->label('Tanggal')->date()->sortable(),
                 Tables\Columns\TextColumn::make('durianVariety.name')->label('Varian')->searchable()->sortable()->placeholder('-'),
@@ -352,23 +290,27 @@ class StockOpnameResource extends Resource
                 Tables\Filters\SelectFilter::make('outlet_id')
                     ->label('Outlet')
                     ->relationship('outlet', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('durian_variety_id')
                     ->label('Varian')
                     ->relationship('durianVariety', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('inventory_item_id')
                     ->label('Produk Inventory')
                     ->relationship('inventoryItem', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('product_type')
                     ->label('Kategori')
+                    ->multiple()
                     ->options([
                         'Buah Utuh' => 'Buah Utuh',
                         'Daging Fresh' => 'Daging Fresh',

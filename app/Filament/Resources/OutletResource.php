@@ -8,7 +8,9 @@ use App\Models\Outlet;
 use App\Models\Shipment;
 use App\Models\Production;
 use App\Models\ProductConversion;
+use App\Models\ProductReturn;
 use App\Models\Sale;
+use App\Services\StockSnapshotCalculator;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -23,6 +25,8 @@ use Filament\Tables\Filters\SelectFilter;
 class OutletResource extends Resource
 {
     protected static ?string $model = Outlet::class;
+
+    private static array $stockSnapshotCache = [];
     
     // Ikon toko/outlet untuk sidebar
     protected static ?string $navigationIcon = 'heroicon-o-building-storefront'; 
@@ -67,6 +71,7 @@ class OutletResource extends Resource
     {
         return $table
             ->columns([
+                TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
                 TextColumn::make('name')
                     ->label('Nama Outlet')
                     ->searchable()
@@ -94,78 +99,30 @@ class OutletResource extends Resource
                 TextColumn::make('stok_buah_butir')
                     ->label('Sisa Buah (Btr Est.)')
                     ->getStateUsing(function (Outlet $record) {
-                        $masuk = Shipment::where('outlet_id', $record->id)
-                            ->where('shipment_direction', 'warehouse_to_outlet')
-                            ->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type'))
-                            ->sum('qty_received_butir');
-                        $kupas = Production::where('outlet_id', $record->id)->sum('qty_buah_butir');
-                        $jualUtuh = Sale::where('outlet_id', $record->id)->sum('buah_sold_butir');
-
-                        $salesBuahKg = Sale::where('outlet_id', $record->id)->sum('buah_sold_kg');
-                        $shipmentKg = Shipment::where('outlet_id', $record->id)
-                            ->where('shipment_direction', 'warehouse_to_outlet')
-                            ->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type'))
-                            ->sum('qty_sent_kg');
-                        $shipmentButir = Shipment::where('outlet_id', $record->id)
-                            ->where('shipment_direction', 'warehouse_to_outlet')
-                            ->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type'))
-                            ->sum('qty_received_butir');
+                        $currentKg = self::currentDurianStockKg($record, 'Buah Utuh');
+                        $shipmentKg = self::shipmentKg($record, 'Buah Utuh', 'warehouse_to_outlet');
+                        $shipmentButir = self::shipmentButir($record, 'Buah Utuh', 'warehouse_to_outlet');
                         $avgWeight = $shipmentButir > 0 ? $shipmentKg / $shipmentButir : 0;
-                        $jualUtuhEstimasi = $avgWeight > 0 ? $salesBuahKg / $avgWeight : 0;
 
-                        return number_format($masuk - $kupas - $jualUtuh - $jualUtuhEstimasi, 0, ',', '.') . ' Btr';
+                        return number_format($avgWeight > 0 ? $currentKg / $avgWeight : 0, 0, ',', '.') . ' Btr';
                     })->color('warning'),
 
                 TextColumn::make('stok_buah_kg')
                     ->label('Sisa Buah (KG)')
                     ->getStateUsing(function (Outlet $record) {
-                        $masuk = Shipment::where('outlet_id', $record->id)
-                            ->where('shipment_direction', 'warehouse_to_outlet')
-                            ->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type'))
-                            ->sum('qty_sent_kg');
-                        $kupas = Production::where('outlet_id', $record->id)->sum('qty_buah_kg');
-                        $jualUtuh = Sale::where('outlet_id', $record->id)->sum('buah_sold_kg');
-
-                        return number_format($masuk - $kupas - $jualUtuh, 3, ',', '.') . ' Kg';
+                        return number_format(self::currentDurianStockKg($record, 'Buah Utuh'), 3, ',', '.') . ' Kg';
                     }),
 
                 TextColumn::make('stok_fresh_kg')
                     ->label('Stok Fresh (KG)')
                     ->getStateUsing(function (Outlet $record) {
-                        $hasilKupas = Production::where('outlet_id', $record->id)->sum('qty_kupas_kg');
-                        $pindahKeFrozen = ProductConversion::where('outlet_id', $record->id)
-                            ->where('conversion_type', 'Kupas Fresh ke Kupas Frozen')
-                            ->sum('from_qty_kg');
-                        $terjual = Sale::where('outlet_id', $record->id)->sum('fresh_sold_kg');
-                        $masukShipment = Shipment::where('outlet_id', $record->id)
-                            ->where('shipment_direction', 'warehouse_to_outlet')
-                            ->where('product_type', 'Daging Fresh')
-                            ->sum('qty_received_kg');
-                        $tarikGudang = Shipment::where('outlet_id', $record->id)
-                            ->where('shipment_direction', 'outlet_to_warehouse')
-                            ->where('product_type', 'Daging Fresh')
-                            ->sum('qty_sent_kg');
-
-                        return number_format($hasilKupas + $masukShipment - $pindahKeFrozen - $terjual - $tarikGudang, 3, ',', '.') . ' Kg';
+                        return number_format(self::currentDurianStockKg($record, 'Daging Fresh'), 3, ',', '.') . ' Kg';
                     })->color('success'),
 
                 TextColumn::make('stok_frozen_kg')
                     ->label('Stok Frozen (KG)')
                     ->getStateUsing(function (Outlet $record) {
-                        $masukDariFresh = ProductConversion::where('outlet_id', $record->id)
-                            ->where('conversion_type', 'Kupas Fresh ke Kupas Frozen')
-                            ->sum('to_qty_kg');
-                        $terjual = Sale::where('outlet_id', $record->id)->sum('frozen_sold_kg');
-                        $masukShipment = Shipment::where('outlet_id', $record->id)
-                            ->where('shipment_direction', 'warehouse_to_outlet')
-                            ->where('product_type', 'Daging Frozen')
-                            ->sum('qty_received_kg');
-                        $tarikGudang = Shipment::where('outlet_id', $record->id)
-                            ->where('shipment_direction', 'outlet_to_warehouse')
-                            ->where('product_type', 'Daging Frozen')
-                            ->sum('qty_sent_kg');
-
-                        return number_format($masukDariFresh + $masukShipment - $terjual - $tarikGudang, 3, ',', '.') . ' Kg';
+                        return number_format(self::currentDurianStockKg($record, 'Daging Frozen'), 3, ',', '.') . ' Kg';
                     })->color('info'),
 
                 TextColumn::make('stok_olahan_kg')
@@ -178,6 +135,7 @@ class OutletResource extends Resource
             ->filters([
                 SelectFilter::make('group_name')
                     ->label('Grup Outlet')
+                    ->multiple()
                     ->options(Outlet::GROUPS),
 
                 Tables\Filters\Filter::make('no_group')
@@ -192,6 +150,54 @@ class OutletResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ]);
+    }
+
+    private static function shipmentKg(Outlet $outlet, string $productType, string $direction): float
+    {
+        return (float) Shipment::where('outlet_id', $outlet->id)
+            ->where('shipment_direction', $direction)
+            ->when(
+                $productType === 'Buah Utuh',
+                fn ($query) => $query->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type')),
+                fn ($query) => $query->where('product_type', $productType),
+            )
+            ->selectRaw('COALESCE(SUM(CASE WHEN COALESCE(qty_received_kg, 0) > 0 THEN qty_received_kg ELSE qty_sent_kg END), 0) as total')
+            ->value('total');
+    }
+
+    private static function currentDurianStockKg(Outlet $outlet, string $productType): float
+    {
+        return collect(self::stockSnapshotRows($outlet))
+            ->where('product_type', $productType)
+            ->sum('end_qty');
+    }
+
+    private static function stockSnapshotRows(Outlet $outlet): array
+    {
+        $date = now()->toDateString();
+        $key = $outlet->id . ':' . $date;
+
+        if (! array_key_exists($key, self::$stockSnapshotCache)) {
+            self::$stockSnapshotCache[$key] = app(StockSnapshotCalculator::class)->calculate([
+                'date' => $date,
+                'outlet_id' => $outlet->id,
+            ])['rows'];
+        }
+
+        return self::$stockSnapshotCache[$key];
+    }
+
+    private static function shipmentButir(Outlet $outlet, string $productType, string $direction): float
+    {
+        return (float) Shipment::where('outlet_id', $outlet->id)
+            ->where('shipment_direction', $direction)
+            ->when(
+                $productType === 'Buah Utuh',
+                fn ($query) => $query->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type')),
+                fn ($query) => $query->where('product_type', $productType),
+            )
+            ->selectRaw('COALESCE(SUM(CASE WHEN COALESCE(qty_received_butir, 0) > 0 THEN qty_received_butir ELSE qty_sent_butir END), 0) as total')
+            ->value('total');
     }
 
     public static function getRelations(): array

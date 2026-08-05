@@ -65,7 +65,7 @@ class ProductionResource extends Resource
                     ->schema([
                         TextInput::make('total_usable_meat_kg')->label('Total Daging Diperoleh (KG)')->readOnly(),
                         TextInput::make('shrinkage_percentage')->label('Penyusutan Kulit & Biji (%)')->suffix('%')->readOnly(),
-                        TextInput::make('multiplier_factor')->label('Angka Pengkali Modal')->readOnly(),
+                        TextInput::make('multiplier_factor')->label('Pengkali Produksi Fisik')->readOnly(),
                     ])->columns(3),
             ]);
     }
@@ -86,7 +86,8 @@ class ProductionResource extends Resource
             $persenSusut = ($totalSusutBerat / $buahUtuhKg) * 100;
             $set('shrinkage_percentage', round($persenSusut, 2));
 
-            // 3. Angka pengkali modal = Berat Buah Utuh / Total Daging yang bisa dimanfaatkan
+            // 3. Pengkali fisik = Berat Buah Utuh / Total daging tercatat.
+            // Modal fresh normal dihitung terpisah di BusinessInsightsCalculator agar output return tidak menurunkan HPP normal.
             if ($totalDaging > 0) {
                 $set('multiplier_factor', round($buahUtuhKg / $totalDaging, 2));
             } else {
@@ -102,6 +103,7 @@ class ProductionResource extends Resource
     {
         return $table
             ->columns([
+                TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
                 TextColumn::make('outlet.name')->label('Outlet')->searchable()->sortable(),
                 TextColumn::make('durianVariety.name')->label('Varian')->searchable()->sortable(),
                 TextColumn::make('date')->label('Tanggal')->date()->sortable(),
@@ -115,24 +117,27 @@ class ProductionResource extends Resource
                 TextColumn::make('qty_kupas_kg')->label('Fresh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
                 TextColumn::make('qty_olahan_kg')->label('Olahan/Reject (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
                 TextColumn::make('shrinkage_percentage')->label('Susut Kulit/Biji (%)')->suffix('%')->sortable(),
-                TextColumn::make('multiplier_factor')->label('Pengkali')->sortable(),
+                TextColumn::make('multiplier_factor')->label('Pengkali Fisik')->sortable(),
             ])
             ->defaultSort('date', 'desc')
             ->filters([
                 Tables\Filters\SelectFilter::make('outlet_id')
                     ->label('Outlet')
                     ->relationship('outlet', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('durian_variety_id')
                     ->label('Varian')
                     ->relationship('durianVariety', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('source_type')
                     ->label('Sumber Buah')
+                    ->multiple()
                     ->options(Production::SOURCES),
 
                 Tables\Filters\Filter::make('date')

@@ -2,15 +2,26 @@
 
 namespace App\Imports;
 
+use App\Models\InventoryItem;
 use App\Models\Sale;
+use App\Models\SaleItem;
 use Illuminate\Database\Eloquent\Model;
 
 class SalesImport extends BaseExcelImport
 {
     protected function makeModel(array $row): ?Model
     {
+        $id = (int) $this->number($row, ['id', 'sale_id', 'sales_id', 'penjualan_id'], 0);
+        $existingSale = $id > 0 ? Sale::find($id) : null;
+
+        if ($id > 0 && ! $existingSale) {
+            throw new \InvalidArgumentException("sales ID {$id} tidak ditemukan");
+        }
+
         $outletId = $this->resolveOutletId($this->value($row, ['outlet_id', 'outlet', 'nama_outlet', 'cabang']));
-        $varietyId = $this->resolveDurianVarietyId($this->value($row, ['durian_variety_id', 'varian', 'variety', 'durian', 'jenis']));
+        $productValue = $this->value($row, ['produk', 'produk_jual', 'item_produk', 'inventory_item', 'nama_produk', 'product_name']);
+        $isGenericProduct = $productValue !== null && trim((string) $productValue) !== '';
+        $varietyId = $this->resolveDurianVarietyId($this->value($row, ['durian_variety_id', 'varian', 'variety', 'durian', 'jenis']), ! $isGenericProduct);
         $date = $this->date($row, ['date', 'tanggal', 'tgl', 'tanggal_jual', 'tgl_jual']);
 
         $buahKg = $this->kgNumber($row, ['buah_sold_kg', 'buah_kg', 'buah_utuh_kg', 'buah_terjual_kg'], 0);
@@ -20,7 +31,15 @@ class SalesImport extends BaseExcelImport
         $frozenKg = $this->kgNumber($row, ['frozen_sold_kg', 'frozen_kg', 'durpas_frozen_kg', 'durpas_kg'], 0);
         $frozenPrice = $this->number($row, ['frozen_price_per_kg', 'harga_frozen', 'harga_durpas'], 0);
         $quantityKg = $this->kgNumber($row, ['quantity_kg', 'qty_kg', 'jumlah_kg'], 0);
-        $category = $this->normalizeLookup($this->text($row, ['kategori_produk', 'kategori', 'produk', 'nama_produk', 'product_name', 'product_type'], ''));
+        $category = $this->normalizeLookup($this->text($row, ['kategori_produk', 'kategori', 'product_type'], ''));
+
+        if ($isGenericProduct && ! $this->looksLikeDurianSalesCategory($category)) {
+            $this->importGenericProductSale($row, $id, $existingSale, $outletId, $varietyId, $date, $productValue);
+
+            $this->imported++;
+
+            return null;
+        }
 
         if ($quantityKg > 0 && $buahKg + $freshKg + $frozenKg <= 0) {
             if (str_contains($category, 'frozen') || str_contains($category, 'durpas')) {
@@ -65,41 +84,126 @@ class SalesImport extends BaseExcelImport
             max(0, $grossSales - $discount - $salesReturn),
         );
 
-        $sale = Sale::firstOrNew([
+        $sale = $existingSale ?? Sale::firstOrNew([
             'outlet_id' => $outletId,
             'durian_variety_id' => $varietyId,
             'date' => $date,
         ]);
 
-        $buahKg = (float) ($sale->buah_sold_kg ?? 0) + $buahKg;
-        $buahSubtotal = (float) ($sale->buah_subtotal ?? 0) + $buahSubtotal;
-        $freshKg = (float) ($sale->fresh_sold_kg ?? 0) + $freshKg;
-        $freshSubtotal = (float) ($sale->fresh_subtotal ?? 0) + $freshSubtotal;
-        $frozenKg = (float) ($sale->frozen_sold_kg ?? 0) + $frozenKg;
-        $frozenSubtotal = (float) ($sale->frozen_subtotal ?? 0) + $frozenSubtotal;
+        if (! $existingSale) {
+            $buahKg = (float) ($sale->buah_sold_kg ?? 0) + $buahKg;
+            $buahSubtotal = (float) ($sale->buah_subtotal ?? 0) + $buahSubtotal;
+            $freshKg = (float) ($sale->fresh_sold_kg ?? 0) + $freshKg;
+            $freshSubtotal = (float) ($sale->fresh_subtotal ?? 0) + $freshSubtotal;
+            $frozenKg = (float) ($sale->frozen_sold_kg ?? 0) + $frozenKg;
+            $frozenSubtotal = (float) ($sale->frozen_subtotal ?? 0) + $frozenSubtotal;
+        }
 
         $sale->fill([
             'outlet_id' => $outletId,
             'durian_variety_id' => $varietyId,
             'date' => $date,
             'buah_sold_kg' => $buahKg,
-            'buah_sold_butir' => (int) ($sale->buah_sold_butir ?? 0) + $this->integer($row, ['buah_sold_butir', 'buah_butir', 'butir_buah'], 0),
+            'buah_sold_butir' => ($existingSale ? 0 : (int) ($sale->buah_sold_butir ?? 0)) + $this->integer($row, ['buah_sold_butir', 'buah_butir', 'butir_buah'], 0),
             'buah_price_per_kg' => $buahKg > 0 ? $buahSubtotal / $buahKg : $buahPrice,
             'buah_subtotal' => $buahSubtotal,
             'fresh_sold_kg' => $freshKg,
-            'fresh_sold_pack' => (int) ($sale->fresh_sold_pack ?? 0) + $this->integer($row, ['fresh_sold_pack', 'fresh_pack', 'pack_fresh'], 0),
+            'fresh_sold_pack' => ($existingSale ? 0 : (int) ($sale->fresh_sold_pack ?? 0)) + $this->integer($row, ['fresh_sold_pack', 'fresh_pack', 'pack_fresh'], 0),
             'fresh_price_per_kg' => $freshKg > 0 ? $freshSubtotal / $freshKg : $freshPrice,
             'fresh_subtotal' => $freshSubtotal,
             'frozen_sold_kg' => $frozenKg,
-            'frozen_sold_pack' => (int) ($sale->frozen_sold_pack ?? 0) + $this->integer($row, ['frozen_sold_pack', 'frozen_pack', 'durpas_pack'], 0),
+            'frozen_sold_pack' => ($existingSale ? 0 : (int) ($sale->frozen_sold_pack ?? 0)) + $this->integer($row, ['frozen_sold_pack', 'frozen_pack', 'durpas_pack'], 0),
             'frozen_price_per_kg' => $frozenKg > 0 ? $frozenSubtotal / $frozenKg : $frozenPrice,
             'frozen_subtotal' => $frozenSubtotal,
-            'grand_total_revenue' => (float) ($sale->grand_total_revenue ?? 0) + $grossSales,
-            'discount_amount' => (float) ($sale->discount_amount ?? 0) + $discount,
-            'sales_return_amount' => (float) ($sale->sales_return_amount ?? 0) + $salesReturn,
-            'net_sales' => (float) ($sale->net_sales ?? 0) + $netSales,
+            'grand_total_revenue' => ($existingSale ? 0 : (float) ($sale->grand_total_revenue ?? 0)) + $grossSales,
+            'discount_amount' => ($existingSale ? 0 : (float) ($sale->discount_amount ?? 0)) + $discount,
+            'sales_return_amount' => ($existingSale ? 0 : (float) ($sale->sales_return_amount ?? 0)) + $salesReturn,
+            'net_sales' => ($existingSale ? 0 : (float) ($sale->net_sales ?? 0)) + $netSales,
         ]);
 
-        return $sale;
+        $sale->save();
+        $sale->recalculateHeaderTotals();
+
+        $this->imported++;
+
+        return null;
+    }
+
+    private function importGenericProductSale(
+        array $row,
+        int $id,
+        ?Sale $existingSale,
+        int $outletId,
+        ?int $varietyId,
+        string $date,
+        mixed $productValue
+    ): void {
+        $inventoryItemId = $this->resolveInventoryItemId($productValue);
+        $inventoryItem = InventoryItem::findOrFail($inventoryItemId);
+
+        $quantity = $this->number($row, ['quantity', 'qty', 'jumlah', 'quantity_kg', 'qty_kg', 'jumlah_kg'], 0);
+        $unit = $inventoryItem->unit ?: 'pcs';
+        $grossSales = $this->number($row, ['gross_sales', 'omset', 'grand_total_revenue', 'total_omset'], 0);
+        $unitPrice = $this->number($row, ['unit_price', 'harga_satuan', 'harga', 'harga_jual'], $quantity > 0 ? $grossSales / $quantity : 0);
+
+        if ($grossSales <= 0) {
+            $grossSales = $quantity * $unitPrice;
+        }
+
+        $discount = $this->number($row, ['discount_amount', 'discount', 'diskon', 'sls_discount'], 0);
+        $salesReturn = $this->number($row, [
+            'sales_return_amount',
+            'sales_return',
+            'return_sales',
+            'sales_retur',
+            'retur_sales',
+            'retur_penjualan',
+        ], 0);
+        $netSales = $this->number($row, ['net_sales', 'sales_setelah_diskon', 'sales_after_discount', 'sales_incl_tax', 'sales_excl_tax'], max(0, $grossSales - $discount - $salesReturn));
+        $unitCost = (float) $inventoryItem->default_unit_cost;
+
+        $sale = $existingSale ?? ($id > 0 ? Sale::find($id) : null);
+        $sale ??= Sale::firstOrNew([
+            'outlet_id' => $outletId,
+            'durian_variety_id' => $varietyId,
+            'date' => $date,
+        ]);
+
+        $sale->fill([
+            'outlet_id' => $outletId,
+            'durian_variety_id' => $varietyId,
+            'date' => $date,
+            'discount_amount' => (float) ($sale->discount_amount ?? 0) + $discount,
+            'sales_return_amount' => (float) ($sale->sales_return_amount ?? 0) + $salesReturn,
+        ]);
+        $sale->save();
+
+        SaleItem::create([
+            'sale_id' => $sale->id,
+            'inventory_item_id' => $inventoryItemId,
+            'item_name' => $inventoryItem->name,
+            'category' => $inventoryItem->category ?: 'produk_jualan',
+            'unit' => $unit,
+            'quantity' => $quantity,
+            'unit_price' => $unitPrice,
+            'gross_sales' => $grossSales,
+            'discount_amount' => $discount,
+            'sales_return_amount' => $salesReturn,
+            'net_sales' => $netSales,
+            'unit_cost' => $unitCost,
+            'total_cost' => $quantity * $unitCost,
+            'notes' => $this->text($row, ['catatan', 'notes', 'keterangan'], null),
+        ]);
+
+        $sale->recalculateHeaderTotals();
+    }
+
+    private function looksLikeDurianSalesCategory(string $category): bool
+    {
+        return str_contains($category, 'buah')
+            || str_contains($category, 'utuh')
+            || str_contains($category, 'fresh')
+            || str_contains($category, 'frozen')
+            || str_contains($category, 'durpas');
     }
 }

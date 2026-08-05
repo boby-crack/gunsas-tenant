@@ -48,10 +48,10 @@ Route publik yang tersedia:
 
 ```text
 /
-/test-ai
+/webhook/whatsapp
 ```
 
-`/test-ai` memakai `App\Services\BotIntelligence` untuk uji parsing pesan retur sederhana.
+`/webhook/whatsapp` dipakai provider WhatsApp untuk mengirim laporan otomatis ke sistem.
 
 ## Setup Lokal
 

@@ -10,8 +10,20 @@
 
 <x-filament-panels::page>
     <div class="space-y-4">
-        <form>
+        <form wire:submit.prevent="applyFilters" class="space-y-3">
             {{ $this->form }}
+
+            <div class="flex justify-end">
+                <button
+                    type="submit"
+                    wire:loading.attr="disabled"
+                    wire:target="applyFilters"
+                    class="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-70"
+                >
+                    <span wire:loading.remove wire:target="applyFilters">Terapkan Filter</span>
+                    <span wire:loading wire:target="applyFilters">Menerapkan...</span>
+                </button>
+            </div>
         </form>
 
         @if ($simulation['warnings'] !== [])

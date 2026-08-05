@@ -29,13 +29,16 @@ class OwnerBusinessReportExport implements FromArray, ShouldAutoSize, WithStyles
             ['Pendapatan Gunsas', $this->money($this->sales('gunsas_revenue')), 'Setelah bagi hasil partner'],
             ['Profit Bersih', $this->money($this->profit('net_profit')), 'Setelah HPP, expense, inventory terpakai, retur final, dan opname'],
             ['Margin Bersih', $this->percent($this->profit('net_margin')), 'Profit bersih / pendapatan Gunsas'],
-            ['Profit + Inventory', $this->money($this->profit('net_asset_position')), 'Posisi aset, bukan laba bersih murni'],
+            ['Recovery Fresh Terjual', $this->kg($this->returnRecovery('sold_kg')), 'Fresh dari retur yang sudah diasumsikan terjual'],
+            ['HPP Tidak Dibebankan Recovery', $this->money($this->returnRecovery('hpp_saved_amount')), 'HPP fresh tidak ditambahkan lagi karena modal buah retur sudah masuk loss retur'],
+            ['Profit + Inventory', $this->money($this->profit('net_asset_position')), 'Profit bersih ditambah inventory valuation'],
             [],
             ['BIAYA, LOSS, DAN ASET'],
             ['Metrik', 'Nilai', 'Catatan'],
             ['HPP Penjualan', $this->money($this->cost('hpp_sales')), 'Modal barang yang sudah terjual'],
             ['Expense', $this->money($this->cost('expenses')), 'Direct outlet + alokasi global'],
-            ['Inventory Terpakai', $this->money($this->cost('inventory_usage')), 'Packaging/supply yang habis terpakai'],
+            ['Inventory Terpakai Operasional', $this->money($this->cost('inventory_usage')), 'Packaging/supply yang habis terpakai'],
+            ['Loss Produk Jualan', $this->money($this->opnameLoss('inventory_item_amount')), 'Produk jualan non-durian yang kurang saat stok opname'],
             ['Loss Retur Final', $this->money($this->returns('loss_final')), 'Klaim retur yang tidak tertutup refund supplier'],
             ['Loss Opname', $this->money($this->cost('opname_loss')), 'Selisih minus stok opname'],
             ['Nilai Stok Tersisa', $this->money($this->inventory('amount')), 'Inventory valuation sebagai aset terpisah'],
@@ -103,6 +106,12 @@ class OwnerBusinessReportExport implements FromArray, ShouldAutoSize, WithStyles
         $rows[] = ['Refund Diterima', $this->money($this->returns('refund_received'))];
         $rows[] = ['Loss Final', $this->money($this->returns('loss_final'))];
         $rows[] = ['KG Ditolak Supplier', $this->kg($this->returns('rejected_kg'))];
+        $rows[] = ['Fresh dari Return', $this->kg($this->returnRecovery('fresh_kg'))];
+        $rows[] = ['Fresh Recovery Terjual', $this->kg($this->returnRecovery('sold_kg'))];
+        $rows[] = ['Fresh Recovery Tersisa', $this->kg($this->returnRecovery('remaining_kg'))];
+        $rows[] = ['Olahan dari Return', $this->kg($this->returnRecovery('olahan_kg'))];
+        $rows[] = ['HPP Tidak Dibebankan Recovery', $this->money($this->returnRecovery('hpp_saved_amount'))];
+        $rows[] = ['Rugi Final Setelah Refund', $this->money($this->returns('loss_final'))];
         $rows[] = ['Klaim Pending', $this->money($this->returns('pending_asset'))];
         $rows[] = ['Jumlah Pending', ($this->returns('pending_count')) . ' retur'];
 
@@ -115,7 +124,7 @@ class OwnerBusinessReportExport implements FromArray, ShouldAutoSize, WithStyles
         $rows[] = ['Olahan / Reject', $this->kg($this->production('olahan_kg')) . ' / ' . $this->percent($this->production('olahan_yield_percentage'))];
         $rows[] = ['Susut Kulit & Biji', $this->kg($this->production('shrink_kg')) . ' / ' . $this->percent($this->production('shrinkage_percentage'))];
         $rows[] = ['Yield Daging', $this->percent($this->production('yield_percentage'))];
-        $rows[] = ['Pengkali Modal', number_format((float) $this->production('multiplier_factor'), 2, ',', '.') . 'x'];
+        $rows[] = ['Pengkali Produksi Fisik', number_format((float) $this->production('multiplier_factor'), 2, ',', '.') . 'x'];
 
         return $rows;
     }
@@ -201,6 +210,11 @@ class OwnerBusinessReportExport implements FromArray, ShouldAutoSize, WithStyles
         return (float) ($this->insights['costs'][$key] ?? 0);
     }
 
+    private function opnameLoss(string $key): float
+    {
+        return (float) ($this->insights['costs']['opname_loss_kg'][$key] ?? 0);
+    }
+
     private function profit(string $key): float
     {
         return (float) ($this->insights['profit'][$key] ?? 0);
@@ -209,6 +223,11 @@ class OwnerBusinessReportExport implements FromArray, ShouldAutoSize, WithStyles
     private function returns(string $key): float
     {
         return (float) ($this->insights['returns'][$key] ?? 0);
+    }
+
+    private function returnRecovery(string $key): float
+    {
+        return (float) ($this->insights['returns']['recovery'][$key] ?? 0);
     }
 
     private function inventory(string $key): float

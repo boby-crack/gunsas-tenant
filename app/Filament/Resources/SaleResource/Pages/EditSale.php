@@ -16,4 +16,9 @@ class EditSale extends EditRecord
             Actions\DeleteAction::make(),
         ];
     }
+
+    protected function afterSave(): void
+    {
+        $this->record->recalculateHeaderTotals();
+    }
 }

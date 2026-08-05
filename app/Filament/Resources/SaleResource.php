@@ -3,7 +3,9 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\SaleResource\Pages;
+use App\Models\InventoryItem;
 use App\Models\Sale;
+use Illuminate\Database\Eloquent\Builder;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -25,7 +27,10 @@ class SaleResource extends Resource
         return $form
             ->schema([
                 Select::make('outlet_id')->relationship('outlet', 'name')->label('Pilih Outlet')->required(),
-                Select::make('durian_variety_id')->relationship('durianVariety', 'name')->label('Varian Durian')->required(),
+                Select::make('durian_variety_id')
+                    ->relationship('durianVariety', 'name')
+                    ->label('Varian Durian')
+                    ->helperText('Opsional untuk penjualan produk non-durian.'),
                 DatePicker::make('date')->label('Tanggal Transaksi Penjualan')->required()->default(now()),
 
                 Section::make('1. Omset BUAH UTUH (UoM: KG)')
@@ -51,6 +56,49 @@ class SaleResource extends Resource
                         TextInput::make('frozen_price_per_kg')->label('Harga Jual Frozen / KG')->numeric()->prefix('Rp')->default(0)->live(onBlur: true)->afterStateUpdated(fn ($set, $get) => self::hitungOmsetGunsas($set, $get)),
                         TextInput::make('frozen_subtotal')->label('Subtotal Durpas Frozen')->numeric()->prefix('Rp')->readOnly(),
                     ])->columns(2),
+
+                Section::make('4. Produk Jualan Lain')
+                    ->description('Untuk produk non-durian seperti pancake, brulee, atau produk olahan lain.')
+                    ->schema([
+                        Forms\Components\Repeater::make('items')
+                            ->relationship('items')
+                            ->label('Item Produk')
+                            ->schema([
+                                Select::make('inventory_item_id')
+                                    ->label('Produk')
+                                    ->options(fn () => InventoryItem::query()
+                                        ->where('is_active', true)
+                                        ->where('is_sellable', true)
+                                        ->orderBy('name')
+                                        ->pluck('name', 'id'))
+                                    ->searchable()
+                                    ->preload()
+                                    ->live()
+                                    ->afterStateUpdated(function ($state, Forms\Set $set): void {
+                                        $item = $state ? InventoryItem::find($state) : null;
+
+                                        if (! $item) {
+                                            return;
+                                        }
+
+                                        $set('item_name', $item->name);
+                                        $set('category', $item->category);
+                                        $set('unit', $item->unit);
+                                        $set('unit_cost', $item->default_unit_cost);
+                                    }),
+                                TextInput::make('item_name')->label('Nama Snapshot')->required()->maxLength(255),
+                                TextInput::make('quantity')->label('Qty')->numeric()->step('0.001')->default(0)->live(onBlur: true)->afterStateUpdated(fn ($set, $get) => self::hitungItemSales($set, $get)),
+                                TextInput::make('unit')->label('Satuan')->default('pcs')->maxLength(50)->readOnly(),
+                                TextInput::make('unit_price')->label('Harga / Satuan')->numeric()->prefix('Rp')->default(0)->live(onBlur: true)->afterStateUpdated(fn ($set, $get) => self::hitungItemSales($set, $get)),
+                                TextInput::make('gross_sales')->label('Omset Item')->numeric()->prefix('Rp')->readOnly(),
+                                TextInput::make('unit_cost')->label('Modal / Satuan')->numeric()->prefix('Rp')->default(0)->readOnly(),
+                                TextInput::make('total_cost')->label('Total Modal Item')->numeric()->prefix('Rp')->readOnly(),
+                                TextInput::make('notes')->label('Catatan')->maxLength(255)->columnSpanFull(),
+                            ])
+                            ->columns(4)
+                            ->defaultItems(0)
+                            ->addActionLabel('Tambah Produk Jualan'),
+                    ]),
 
                 Section::make('Total Pendapatan Harian Outlet')
                     ->schema([
@@ -82,8 +130,13 @@ class SaleResource extends Resource
         $frozenSub = $frozenKg * $frozenPrice;
         $set('frozen_subtotal', $frozenSub);
 
+        $itemGross = 0;
+        foreach ((array) ($get('items') ?? []) as $item) {
+            $itemGross += floatval($item['gross_sales'] ?? 0);
+        }
+
         // 4. Kalkulasi Grand Total Akhir
-        $grossSales = $buahSub + $freshSub + $frozenSub;
+        $grossSales = $buahSub + $freshSub + $frozenSub + $itemGross;
         $discount = floatval($get('discount_amount') ?? 0);
         $salesReturn = floatval($get('sales_return_amount') ?? 0);
 
@@ -91,16 +144,30 @@ class SaleResource extends Resource
         $set('net_sales', max(0, $grossSales - $discount - $salesReturn));
     }
 
+    public static function hitungItemSales(Forms\Set $set, Forms\Get $get): void
+    {
+        $quantity = (float) ($get('quantity') ?? 0);
+        $unitPrice = (float) ($get('unit_price') ?? 0);
+        $unitCost = (float) ($get('unit_cost') ?? 0);
+        $gross = $quantity * $unitPrice;
+
+        $set('gross_sales', $gross);
+        $set('net_sales', $gross);
+        $set('total_cost', $quantity * $unitCost);
+    }
+
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
+                TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
                 TextColumn::make('outlet.name')->label('Outlet')->searchable()->sortable(),
                 TextColumn::make('durianVariety.name')->label('Varian')->searchable()->sortable(),
                 TextColumn::make('date')->label('Tanggal')->date()->sortable(),
                 TextColumn::make('buah_sold_kg')->label('Buah Utuh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
                 TextColumn::make('fresh_sold_kg')->label('Daging Fresh (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
                 TextColumn::make('frozen_sold_kg')->label('Durpas Frozen (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),
+                TextColumn::make('items_count')->counts('items')->label('Produk Lain')->sortable()->toggleable(),
                 TextColumn::make('grand_total_revenue')->label('Gross Sales')->money('IDR')->sortable(),
                 TextColumn::make('discount_amount')->label('Discount')->money('IDR')->sortable()->toggleable(),
                 TextColumn::make('sales_return_amount')->label('Sales Return')->money('IDR')->sortable()->toggleable(),
@@ -111,14 +178,55 @@ class SaleResource extends Resource
                 Tables\Filters\SelectFilter::make('outlet_id')
                     ->label('Outlet')
                     ->relationship('outlet', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('durian_variety_id')
                     ->label('Varian')
                     ->relationship('durianVariety', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
+
+                Tables\Filters\SelectFilter::make('sales_type')
+                    ->label('Jenis Penjualan')
+                    ->options([
+                        'durian' => 'Produk Durian',
+                        'non_durian' => 'Produk Non-Durian',
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return match ($data['value'] ?? null) {
+                            'durian' => $query->where(function (Builder $query): void {
+                                $query
+                                    ->where('buah_sold_kg', '>', 0)
+                                    ->orWhere('fresh_sold_kg', '>', 0)
+                                    ->orWhere('frozen_sold_kg', '>', 0);
+                            }),
+                            'non_durian' => $query->whereHas('items', function (Builder $query): void {
+                                $query->where('category', 'produk_jualan');
+                            }),
+                            default => $query,
+                        };
+                    }),
+
+                Tables\Filters\SelectFilter::make('inventory_item_id')
+                    ->label('Produk Non-Durian')
+                    ->options(fn () => InventoryItem::query()
+                        ->where('is_active', true)
+                        ->where('is_sellable', true)
+                        ->where('category', 'produk_jualan')
+                        ->orderBy('name')
+                        ->pluck('name', 'id'))
+                    ->searchable()
+                    ->preload()
+                    ->query(function (Builder $query, array $data): Builder {
+                        $value = $data['value'] ?? null;
+
+                        return $value
+                            ? $query->whereHas('items', fn (Builder $query) => $query->where('inventory_item_id', $value))
+                            : $query;
+                    }),
 
                 Tables\Filters\Filter::make('date')
                     ->form([

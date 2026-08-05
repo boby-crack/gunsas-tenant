@@ -10,6 +10,13 @@ class InventoryItemsImport extends BaseExcelImport
 {
     protected function makeModel(array $row): ?Model
     {
+        $id = (int) $this->number($row, ['id', 'inventory_item_id', 'produk_id'], 0);
+        $existingById = $id > 0 ? InventoryItem::find($id) : null;
+
+        if ($id > 0 && ! $existingById) {
+            throw new \InvalidArgumentException("produk ID {$id} tidak ditemukan");
+        }
+
         $name = $this->text($row, ['name', 'nama_produk', 'produk', 'item']);
 
         if (! $name) {
@@ -29,10 +36,11 @@ class InventoryItemsImport extends BaseExcelImport
             'durian_variety_id' => $varietyId,
             'default_unit_cost' => $this->number($row, ['default_unit_cost', 'harga_default', 'modal_default', 'harga_modal', 'modal'], 0),
             'is_active' => $this->normalizeBoolean($this->text($row, ['is_active', 'aktif', 'status'], 'aktif')),
+            'is_sellable' => $this->normalizeBoolean($this->text($row, ['is_sellable', 'produk_dijual', 'dijual', 'sellable'], 'tidak')),
             'notes' => $this->text($row, ['notes', 'catatan', 'keterangan']),
         ];
 
-        $item = InventoryItem::query()
+        $item = $existingById ?? InventoryItem::query()
             ->when($sku, fn ($query) => $query->where('sku', $sku))
             ->when(! $sku, fn ($query) => $query->where('name', $name))
             ->first();
@@ -55,7 +63,17 @@ class InventoryItemsImport extends BaseExcelImport
             str_contains($category, 'buah') => 'buah_utuh',
             str_contains($category, 'fresh'), str_contains($category, 'kupas') => 'kupas_fresh',
             str_contains($category, 'frozen'), str_contains($category, 'durpas') => 'durpas_frozen',
-            str_contains($category, 'olahan'), str_contains($category, 'pancake') => 'produk_olahan',
+            str_contains($category, 'nondurian'),
+            str_contains($category, 'produknondurian'),
+            str_contains($category, 'produkjualan'),
+            str_contains($category, 'produkjual'),
+            str_contains($category, 'jualanlain'),
+            str_contains($category, 'penjualannondurian'),
+            str_contains($category, 'kategoripenjualan'),
+            str_contains($category, 'pancake'),
+            str_contains($category, 'brulee'),
+            str_contains($category, 'brule') => 'produk_jualan',
+            str_contains($category, 'olahan') => 'produk_olahan',
             str_contains($category, 'pack'), str_contains($category, 'thinwall'), str_contains($category, 'kemasan') => 'packaging',
             str_contains($category, 'stiker'), str_contains($category, 'label') => 'stiker',
             str_contains($category, 'bahan') => 'bahan_baku',

@@ -6,8 +6,6 @@ use App\Models\InventoryItem;
 use App\Models\ProductConversion;
 use App\Models\ProductReturn;
 use App\Models\Production;
-use App\Models\Sale;
-use App\Models\Shipment;
 use App\Models\StockOpname;
 use App\Models\WhatsappReport;
 use Illuminate\Database\Eloquent\Model;
@@ -41,6 +39,7 @@ class WhatsappReportApprover
                 'rijek' => $this->createReturnProduction($payload),
                 'kupas' => $this->createProduction($payload),
                 'frozen' => $this->createProductConversion($payload),
+                'fresh_loss' => $this->createProductConversion($payload),
                 'opname' => $this->createStockOpnames($payload),
                 default => null,
             };
@@ -136,11 +135,11 @@ class WhatsappReportApprover
             'outlet_id' => $payload['outlet_id'],
             'durian_variety_id' => $payload['durian_variety_id'],
             'date' => $payload['date'],
-            'conversion_type' => 'Kupas Fresh ke Kupas Frozen',
+            'conversion_type' => $payload['conversion_type'] ?? ProductConversion::TYPE_FRESH_TO_FROZEN,
             'from_qty_pack' => $payload['from_qty_pack'] ?? 0,
             'from_qty_kg' => $payload['from_qty_kg'],
             'to_qty_pack' => $payload['to_qty_pack'] ?? 0,
-            'to_qty_kg' => $payload['to_qty_kg'],
+            'to_qty_kg' => $payload['to_qty_kg'] ?? 0,
             'notes' => $payload['notes'] ?? 'Input dari WhatsApp',
         ]);
     }
@@ -153,9 +152,10 @@ class WhatsappReportApprover
         $records = [];
 
         foreach ($payload['opname_items'] ?? [] as $item) {
+            $varietyId = (int) ($item['durian_variety_id'] ?? $payload['durian_variety_id']);
             $systemQty = $this->durianSystemQty(
                 (int) $payload['outlet_id'],
-                (int) $payload['durian_variety_id'],
+                $varietyId,
                 (string) $item['product_type'],
                 $payload['date'],
             );
@@ -163,13 +163,13 @@ class WhatsappReportApprover
 
             $records[] = StockOpname::create([
                 'outlet_id' => $payload['outlet_id'],
-                'durian_variety_id' => $payload['durian_variety_id'],
+                'durian_variety_id' => $varietyId,
                 'inventory_item_id' => null,
                 'date' => $payload['date'],
                 'product_type' => $item['product_type'],
-                'system_qty_kg' => round(max(0, $systemQty), 3),
+                'system_qty_kg' => round($systemQty, 3),
                 'physical_qty_kg' => round($physicalQty, 3),
-                'difference_qty_kg' => round($physicalQty - max(0, $systemQty), 3),
+                'difference_qty_kg' => round($physicalQty - $systemQty, 3),
                 'notes' => $this->opnameNotes($payload, $item),
             ]);
         }
@@ -189,9 +189,9 @@ class WhatsappReportApprover
                 'inventory_item_id' => $inventoryItem->id,
                 'date' => $date,
                 'product_type' => 'Inventory Item',
-                'system_qty_kg' => round(max(0, $systemQty), 3),
+                'system_qty_kg' => round($systemQty, 3),
                 'physical_qty_kg' => round($physicalQty, 3),
-                'difference_qty_kg' => round($physicalQty - max(0, $systemQty), 3),
+                'difference_qty_kg' => round($physicalQty - $systemQty, 3),
                 'generic_unit' => $item['unit'] ?? $inventoryItem->unit,
                 'generic_unit_cost' => round($unitCost, 2),
                 'generic_consumed_qty' => round($consumedQty, 3),
@@ -215,89 +215,29 @@ class WhatsappReportApprover
 
     private function wholeFruitStock(int $outletId, int $varietyId, mixed $date): float
     {
-        $shipmentKg = Shipment::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('shipment_direction', 'warehouse_to_outlet')
-            ->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type'))
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_sent_kg');
+        if (! $date) {
+            return 0;
+        }
 
-        $soldKg = Sale::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('buah_sold_kg');
-
-        $peeledKg = Production::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_buah_kg');
-
-        return (float) $shipmentKg - (float) $soldKg - (float) $peeledKg;
+        return app(StockSnapshotCalculator::class)->durianStockForOpnameDate((string) $date, $outletId, $varietyId, 'Buah Utuh');
     }
 
     private function freshStock(int $outletId, int $varietyId, mixed $date): float
     {
-        $producedKg = Production::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_kupas_kg');
+        if (! $date) {
+            return 0;
+        }
 
-        $soldKg = Sale::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('fresh_sold_kg');
-
-        $convertedKg = ProductConversion::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('conversion_type', 'Kupas Fresh ke Kupas Frozen')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('from_qty_kg');
-
-        $shipmentInKg = Shipment::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('shipment_direction', 'warehouse_to_outlet')
-            ->where('product_type', 'Daging Fresh')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_received_kg');
-
-        $shipmentOutKg = Shipment::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('shipment_direction', 'outlet_to_warehouse')
-            ->where('product_type', 'Daging Fresh')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_sent_kg');
-
-        return (float) $producedKg + (float) $shipmentInKg - (float) $soldKg - (float) $convertedKg - (float) $shipmentOutKg;
+        return app(StockSnapshotCalculator::class)->durianStockForOpnameDate((string) $date, $outletId, $varietyId, 'Daging Fresh');
     }
 
     private function frozenStock(int $outletId, int $varietyId, mixed $date): float
     {
-        $producedKg = ProductConversion::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('conversion_type', 'Kupas Fresh ke Kupas Frozen')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('to_qty_kg');
+        if (! $date) {
+            return 0;
+        }
 
-        $soldKg = Sale::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('frozen_sold_kg');
-
-        $shipmentInKg = Shipment::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('shipment_direction', 'warehouse_to_outlet')
-            ->where('product_type', 'Daging Frozen')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_received_kg');
-
-        $shipmentOutKg = Shipment::where('outlet_id', $outletId)
-            ->where('durian_variety_id', $varietyId)
-            ->where('shipment_direction', 'outlet_to_warehouse')
-            ->where('product_type', 'Daging Frozen')
-            ->when($date, fn ($query) => $query->whereDate('date', '<=', $date))
-            ->sum('qty_sent_kg');
-
-        return (float) $producedKg + (float) $shipmentInKg - (float) $soldKg - (float) $shipmentOutKg;
+        return app(StockSnapshotCalculator::class)->durianStockForOpnameDate((string) $date, $outletId, $varietyId, 'Daging Frozen');
     }
 
     private function inventoryItemForOpname(array $item): InventoryItem

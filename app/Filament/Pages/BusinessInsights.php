@@ -3,6 +3,8 @@
 namespace App\Filament\Pages;
 
 use App\Exports\OwnerBusinessReportExport;
+use App\Models\DurianVariety;
+use App\Models\InventoryItem;
 use App\Models\Outlet;
 use App\Services\BusinessInsightsCalculator;
 use Filament\Actions\Action;
@@ -12,6 +14,8 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Filament\Pages\Page;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -38,6 +42,10 @@ class BusinessInsights extends Page implements HasForms
         $this->form->fill([
             'outlet_group' => null,
             'outlet_id' => null,
+            'product_category' => null,
+            'durian_variety_id' => null,
+            'product_type' => null,
+            'inventory_item_id' => null,
             'date_from' => now()->startOfMonth()->toDateString(),
             'date_until' => now()->toDateString(),
         ]);
@@ -54,29 +62,67 @@ class BusinessInsights extends Page implements HasForms
                         Select::make('outlet_group')
                             ->label('Grup Outlet')
                             ->options(Outlet::GROUPS)
-                            ->placeholder('Semua Grup')
-                            ->live(),
+                            ->placeholder('Semua Grup'),
 
                         Select::make('outlet_id')
                             ->label('Outlet')
                             ->options(Outlet::query()->orderBy('name')->pluck('name', 'id'))
-                            ->placeholder('Semua Outlet')
-                            ->live(),
+                            ->placeholder('Semua Outlet'),
+
+                        Select::make('product_category')
+                            ->label('Kategori Produk')
+                            ->options([
+                                'durian' => 'Durian',
+                                'non_durian' => 'Non-durian',
+                            ])
+                            ->placeholder('Semua Kategori')
+                            ->live()
+                            ->afterStateUpdated(function (Set $set): void {
+                                $set('product_type', null);
+                                $set('inventory_item_id', null);
+                            }),
+
+                        Select::make('product_type')
+                            ->label('Produk')
+                            ->options([
+                                'Buah Utuh' => 'Buah Utuh',
+                                'Daging Fresh' => 'Kupas Fresh',
+                                'Daging Frozen' => 'Durpas Frozen',
+                            ])
+                            ->placeholder('Semua Produk Durian')
+                            ->visible(fn (Get $get): bool => $get('product_category') !== 'non_durian'),
+
+                        Select::make('inventory_item_id')
+                            ->label('Produk')
+                            ->options(InventoryItem::query()
+                                ->where('is_sellable', true)
+                                ->where('is_active', true)
+                                ->orderBy('name')
+                                ->pluck('name', 'id'))
+                            ->placeholder('Semua Produk Jualan')
+                            ->searchable()
+                            ->helperText('Untuk produk non-durian seperti pancake, brulee, dan produk jualan lain.')
+                            ->visible(fn (Get $get): bool => $get('product_category') === 'non_durian'),
+
+                        Select::make('durian_variety_id')
+                            ->label('Varian')
+                            ->options(DurianVariety::query()->orderBy('name')->pluck('name', 'id'))
+                            ->placeholder('Semua Varian')
+                            ->searchable()
+                            ->visible(fn (Get $get): bool => $get('product_category') !== 'non_durian'),
 
                         DatePicker::make('date_from')
-                            ->label('Tanggal Mulai')
-                            ->live(onBlur: true),
+                            ->label('Tanggal Mulai'),
 
                         DatePicker::make('date_until')
-                            ->label('Tanggal Akhir')
-                            ->live(onBlur: true),
+                            ->label('Tanggal Akhir'),
                     ])
-                    ->columns(4),
+                    ->columns(3),
             ])
             ->statePath('filters');
     }
 
-    public function updatedFilters(): void
+    public function applyFilters(): void
     {
         $this->refreshInsights();
     }
@@ -112,7 +158,7 @@ class BusinessInsights extends Page implements HasForms
 
     private function refreshInsights(): void
     {
-        $this->insightsData = app(BusinessInsightsCalculator::class)->calculate($this->filters ?? []);
+        $this->insightsData = app(BusinessInsightsCalculator::class)->calculate($this->filters ?? [], includeOperationalReports: true);
     }
 
     private function reportFilters(): array

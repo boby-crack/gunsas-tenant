@@ -59,6 +59,11 @@ abstract class BaseExcelImport implements ToModel, WithCalculatedFormulas, WithH
         return count($this->errors);
     }
 
+    public function errorMessages(int $limit = 10): array
+    {
+        return array_slice($this->errors, 0, $limit);
+    }
+
     public function summary(): string
     {
         $summary = "{$this->imported} baris berhasil diimpor.";
@@ -383,6 +388,7 @@ abstract class BaseExcelImport implements ToModel, WithCalculatedFormulas, WithH
 
         return match (true) {
             str_contains($status, 'approve'), str_contains($status, 'diterima'), str_contains($status, 'selesai') => 'approved_by_supplier',
+            str_contains($status, 'noretur'), str_contains($status, 'noreturn'), str_contains($status, 'tidakretur') => 'rejected_by_supplier',
             str_contains($status, 'reject'), str_contains($status, 'tolak') => 'rejected_by_supplier',
             default => 'pending',
         };

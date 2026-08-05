@@ -62,11 +62,12 @@ class PurchaseResource extends Resource
                     ->required(fn (Forms\Get $get) => $get('purchase_mode') === 'inventory')
                     ->visible(fn (Forms\Get $get) => $get('purchase_mode') === 'inventory')
                     ->live()
-                    ->afterStateUpdated(function ($state, Forms\Set $set) {
+                    ->afterStateUpdated(function ($state, Forms\Set $set, Forms\Get $get) {
                         $item = InventoryItem::find($state);
 
                         $set('generic_unit', $item?->unit);
                         $set('generic_unit_cost', $item?->default_unit_cost ?? 0);
+                        self::calculateGenericTotal($set, $get);
                     }),
 
                 Forms\Components\TextInput::make('qty_butir')
@@ -116,6 +117,7 @@ class PurchaseResource extends Resource
 
                 Forms\Components\TextInput::make('generic_unit')
                     ->label('Satuan')
+                    ->readOnly()
                     ->visible(fn (Forms\Get $get) => $get('purchase_mode') === 'inventory'),
 
                 Forms\Components\TextInput::make('generic_unit_cost')
@@ -149,6 +151,7 @@ public static function table(Table $table): Table
 {
     return $table
         ->columns([
+            Tables\Columns\TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
             Tables\Columns\TextColumn::make('date')->label('Tanggal')->date()->sortable(),
             Tables\Columns\TextColumn::make('purchase_mode')->label('Jenis')->badge()->sortable(),
             Tables\Columns\TextColumn::make('supplier_code')
@@ -169,6 +172,7 @@ public static function table(Table $table): Table
         ->filters([
             Tables\Filters\SelectFilter::make('purchase_mode')
                 ->label('Jenis Pembelian')
+                ->multiple()
                 ->options([
                     'durian' => 'Buah Durian',
                     'inventory' => 'Produk Inventory',
@@ -177,12 +181,14 @@ public static function table(Table $table): Table
             Tables\Filters\SelectFilter::make('durian_variety_id')
                 ->label('Varian')
                 ->relationship('durianVariety', 'name')
+                ->multiple()
                 ->searchable()
                 ->preload(),
 
             Tables\Filters\SelectFilter::make('inventory_item_id')
                 ->label('Produk Inventory')
                 ->relationship('inventoryItem', 'name')
+                ->multiple()
                 ->searchable()
                 ->preload(),
 
@@ -193,6 +199,7 @@ public static function table(Table $table): Table
                     ->orderBy('supplier_code')
                     ->pluck('supplier_code', 'supplier_code')
                     ->all())
+                ->multiple()
                 ->searchable(),
 
             Tables\Filters\Filter::make('date')

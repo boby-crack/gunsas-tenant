@@ -66,62 +66,53 @@ class PriceSimulator extends Page implements HasForms
                         Select::make('outlet_group')
                             ->label('Grup Outlet')
                             ->options(Outlet::GROUPS)
-                            ->placeholder('Semua Grup')
-                            ->live(),
+                            ->placeholder('Semua Grup'),
 
                         Select::make('outlet_id')
                             ->label('Outlet')
                             ->options(Outlet::query()->orderBy('name')->pluck('name', 'id'))
-                            ->placeholder('Semua Outlet')
-                            ->live(),
+                            ->placeholder('Semua Outlet'),
 
                         Select::make('durian_variety_id')
                             ->label('Varian')
                             ->options(DurianVariety::query()->orderBy('name')->pluck('name', 'id'))
-                            ->placeholder('Semua Varian')
-                            ->live(),
+                            ->placeholder('Semua Varian'),
 
                         DatePicker::make('date_from')
                             ->label('Basis Data Dari')
-                            ->required()
-                            ->live(onBlur: true),
+                            ->required(),
 
                         DatePicker::make('date_until')
                             ->label('Sampai')
-                            ->required()
-                            ->live(onBlur: true),
+                            ->required(),
 
                         TextInput::make('forecast_days')
                             ->label('Forecast Hari')
                             ->numeric()
                             ->minValue(1)
                             ->maxValue(365)
-                            ->required()
-                            ->live(onBlur: true),
+                            ->required(),
 
                         TextInput::make('buah_price_per_kg')
                             ->label('Harga Buah / Kg')
                             ->numeric()
                             ->minValue(0)
                             ->placeholder('Kosongkan untuk saran')
-                            ->prefix('Rp')
-                            ->live(onBlur: true),
+                            ->prefix('Rp'),
 
                         TextInput::make('fresh_price_per_kg')
                             ->label('Harga Fresh / Kg')
                             ->numeric()
                             ->minValue(0)
                             ->placeholder('Kosongkan untuk saran')
-                            ->prefix('Rp')
-                            ->live(onBlur: true),
+                            ->prefix('Rp'),
 
                         TextInput::make('frozen_price_per_kg')
                             ->label('Harga Frozen / Kg')
                             ->numeric()
                             ->minValue(0)
                             ->placeholder('Kosongkan untuk saran')
-                            ->prefix('Rp')
-                            ->live(onBlur: true),
+                            ->prefix('Rp'),
 
                         TextInput::make('target_margin_percent')
                             ->label('Target Margin Bersih')
@@ -129,8 +120,7 @@ class PriceSimulator extends Page implements HasForms
                             ->minValue(0)
                             ->maxValue(90)
                             ->required()
-                            ->suffix('%')
-                            ->live(onBlur: true),
+                            ->suffix('%'),
 
                         TextInput::make('adjustment_percent')
                             ->label('Cadangan Diskon/Return')
@@ -138,20 +128,18 @@ class PriceSimulator extends Page implements HasForms
                             ->minValue(0)
                             ->maxValue(80)
                             ->placeholder('Auto dari histori')
-                            ->suffix('%')
-                            ->live(onBlur: true),
+                            ->suffix('%'),
 
                         Toggle::make('include_overhead')
                             ->label('Masukkan expense, retur loss, inventory, opname')
-                            ->default(true)
-                            ->live(),
+                            ->default(true),
                     ])
                     ->columns(4),
             ])
             ->statePath('filters');
     }
 
-    public function updatedFilters(): void
+    public function applyFilters(): void
     {
         $this->refreshSimulation();
     }

@@ -9,7 +9,6 @@
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Grup Outlet</span>
                 <select
                     name="filters[outlet_group]"
-                    onchange="this.form.submit()"
                     class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
                 >
                     <option value="">Semua Grup</option>
@@ -25,7 +24,6 @@
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Filter Tampilan Data Cabang</span>
                 <select
                     name="filters[outlet_id]"
-                    onchange="this.form.submit()"
                     class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
                 >
                     <option value="">Semua Outlet (Tampilan Global)</option>
@@ -43,7 +41,6 @@
                     type="date"
                     name="filters[date_from]"
                     value="{{ $this->filters['date_from'] ?? now()->startOfMonth()->toDateString() }}"
-                    onchange="this.form.submit()"
                     class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
                 />
             </label>
@@ -54,10 +51,18 @@
                     type="date"
                     name="filters[date_until]"
                     value="{{ $this->filters['date_until'] ?? now()->toDateString() }}"
-                    onchange="this.form.submit()"
                     class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
                 />
             </label>
+        </div>
+
+        <div class="mt-4 flex justify-end">
+            <button
+                type="submit"
+                class="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-500"
+            >
+                Terapkan Filter
+            </button>
         </div>
     </form>
 

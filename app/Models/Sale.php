@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Model;
 
 class Sale extends Model
@@ -21,4 +22,24 @@ class Sale extends Model
 
     public function outlet() { return $this->belongsTo(Outlet::class); }
     public function durianVariety() { return $this->belongsTo(DurianVariety::class); }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(SaleItem::class);
+    }
+
+    public function recalculateHeaderTotals(): void
+    {
+        $legacyGross = (float) $this->buah_subtotal + (float) $this->fresh_subtotal + (float) $this->frozen_subtotal;
+        $itemGross = (float) $this->items()->sum('gross_sales');
+
+        $gross = $legacyGross + $itemGross;
+        $discount = (float) $this->discount_amount;
+        $salesReturn = (float) $this->sales_return_amount;
+
+        $this->forceFill([
+            'grand_total_revenue' => $gross,
+            'net_sales' => max(0, $gross - $discount - $salesReturn),
+        ])->saveQuietly();
+    }
 }

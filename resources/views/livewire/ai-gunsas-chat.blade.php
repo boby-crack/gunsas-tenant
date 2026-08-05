@@ -1,6 +1,7 @@
 <div
     x-data="{
         open: @entangle('isOpen').live,
+        teaser: false,
         scrollToBottom() {
             const el = this.$refs.messages;
 
@@ -15,8 +16,8 @@
     }"
     x-on:ai-gunsas-question-sent.window="$nextTick(() => { scrollToBottom(); $wire.answerPending(); })"
     x-on:ai-gunsas-answer-received.window="$nextTick(() => scrollToBottom())"
-    x-effect="if (open) $nextTick(() => scrollToBottom())"
-    style="position: fixed; right: 24px; bottom: 24px; z-index: 2147483647;"
+    x-effect="if (open) { teaser = false; $nextTick(() => scrollToBottom()); }"
+    style="position: fixed; right: 0; bottom: 18px; z-index: 2147483647;"
 >
     <style>
         [x-cloak] {
@@ -146,7 +147,7 @@
                     </button>
                     <button
                         type="button"
-                        x-on:click="open = false; $wire.closeChat()"
+                        x-on:click="open = false; teaser = false; $wire.closeChat()"
                         class="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
                         aria-label="Tutup AI Gunsas"
                     >
@@ -202,8 +203,35 @@
 
     <button
         type="button"
-        x-on:click="open = true; $wire.openChat()"
-        class="ml-auto flex items-center gap-2 rounded-full bg-white text-gray-950 shadow-xl ring-2 ring-white transition duration-200 hover:scale-[1.02] dark:bg-gray-900 dark:text-white dark:ring-gray-800"
+        x-cloak
+        x-show="! open && ! teaser"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0 translate-x-2"
+        x-transition:enter-end="opacity-100 translate-x-0"
+        x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100 translate-x-0"
+        x-transition:leave-end="opacity-0 translate-x-2"
+        x-on:click="teaser = true"
+        class="ml-auto flex items-center justify-center bg-primary-600 text-white shadow-lg transition hover:bg-primary-500"
+        style="display: flex; width: 28px; height: 64px; align-items: center; justify-content: center; border: 0; border-radius: 9999px 0 0 9999px; background: #f26a00; color: white; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.28); cursor: pointer;"
+        aria-label="Tampilkan AI Gunsas"
+        title="AI Gunsas"
+    >
+        <x-heroicon-o-chevron-left class="h-5 w-5" />
+    </button>
+
+    <button
+        type="button"
+        x-cloak
+        x-show="! open && teaser"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0 translate-x-4 scale-95"
+        x-transition:enter-end="opacity-100 translate-x-0 scale-100"
+        x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100 translate-x-0 scale-100"
+        x-transition:leave-end="opacity-0 translate-x-4 scale-95"
+        x-on:click="open = true; teaser = false; $wire.openChat()"
+        class="mr-3 flex items-center gap-2 rounded-full bg-white text-gray-950 shadow-xl ring-2 ring-white transition duration-200 hover:scale-[1.02] dark:bg-gray-900 dark:text-white dark:ring-gray-800"
         style="display: flex; height: 58px; align-items: center; gap: 8px; border: 0; border-radius: 9999px; background: white; color: #111827; box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35); cursor: pointer; font-family: Arial, sans-serif; padding: 8px 14px 8px 8px;"
         aria-label="Buka AI Gunsas"
     >

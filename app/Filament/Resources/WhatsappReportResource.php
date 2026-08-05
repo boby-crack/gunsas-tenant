@@ -146,6 +146,7 @@ class WhatsappReportResource extends Resource
             ->filters([
                 Tables\Filters\SelectFilter::make('report_type')
                     ->label('Jenis Laporan')
+                    ->multiple()
                     ->options([
                         'retur' => 'Retur',
                         'rijek' => 'Data Rijek',
@@ -156,6 +157,7 @@ class WhatsappReportResource extends Resource
 
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Status')
+                    ->multiple()
                     ->options([
                         'needs_review' => 'Needs Review',
                         'pending_approval' => 'Pending Approval',

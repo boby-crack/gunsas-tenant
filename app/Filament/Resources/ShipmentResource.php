@@ -81,11 +81,12 @@ class ShipmentResource extends Resource
                     ->required(fn (Forms\Get $get) => $get('shipment_mode') === 'inventory')
                     ->visible(fn (Forms\Get $get) => $get('shipment_mode') === 'inventory')
                     ->live()
-                    ->afterStateUpdated(function ($state, Forms\Set $set) {
+                    ->afterStateUpdated(function ($state, Forms\Set $set, Forms\Get $get) {
                         $item = InventoryItem::find($state);
 
                         $set('generic_unit', $item?->unit);
                         $set('generic_unit_cost', $item?->default_unit_cost ?? 0);
+                        self::hitungInventory($set, $get);
                     }),
                     
                 DatePicker::make('date')
@@ -179,6 +180,7 @@ class ShipmentResource extends Resource
 
                 TextInput::make('generic_unit')
                     ->label('Satuan')
+                    ->readOnly()
                     ->visible(fn (Forms\Get $get) => $get('shipment_mode') === 'inventory'),
 
                 TextInput::make('generic_unit_cost')
@@ -187,6 +189,7 @@ class ShipmentResource extends Resource
                     ->prefix('Rp')
                     ->default(0)
                     ->required(fn (Forms\Get $get) => $get('shipment_mode') === 'inventory')
+                    ->readOnly()
                     ->visible(fn (Forms\Get $get) => $get('shipment_mode') === 'inventory')
                     ->live(onBlur: true)
                     ->afterStateUpdated(fn (Forms\Set $set, Forms\Get $get) => self::hitungInventory($set, $get)),
@@ -223,8 +226,14 @@ class ShipmentResource extends Resource
 
     public static function hitungInventory(Forms\Set $set, Forms\Get $get): void
     {
+        $qtySent = (float) ($get('generic_qty_sent') ?? 0);
         $qtyReceived = (float) ($get('generic_qty_received') ?? 0);
         $unitCost = (float) ($get('generic_unit_cost') ?? 0);
+
+        if ($qtyReceived <= 0 && $qtySent > 0) {
+            $qtyReceived = $qtySent;
+            $set('generic_qty_received', $qtyReceived);
+        }
 
         $set('generic_total_amount', round($qtyReceived * $unitCost, 2));
     }
@@ -238,6 +247,7 @@ class ShipmentResource extends Resource
     {
         return $table
             ->columns([
+                TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
                 TextColumn::make('outlet.name')->label('Outlet')->searchable()->sortable(),
                 TextColumn::make('shipment_mode')
                     ->label('Jenis')
@@ -327,11 +337,13 @@ class ShipmentResource extends Resource
                 Tables\Filters\SelectFilter::make('outlet_id')
                     ->label('Outlet')
                     ->relationship('outlet', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('shipment_mode')
                     ->label('Jenis')
+                    ->multiple()
                     ->options([
                         'durian' => 'Buah Durian',
                         'inventory' => 'Produk Inventory',
@@ -339,6 +351,7 @@ class ShipmentResource extends Resource
 
                 Tables\Filters\SelectFilter::make('shipment_direction')
                     ->label('Arah')
+                    ->multiple()
                     ->options([
                         'warehouse_to_outlet' => 'Gudang Besar ke Outlet',
                         'outlet_to_warehouse' => 'Outlet ke Gudang Besar',
@@ -346,6 +359,7 @@ class ShipmentResource extends Resource
 
                 Tables\Filters\SelectFilter::make('product_type')
                     ->label('Kategori Durian')
+                    ->multiple()
                     ->options([
                         'Buah Utuh' => 'Buah Utuh',
                         'Daging Fresh' => 'Kupas Fresh',
@@ -355,12 +369,14 @@ class ShipmentResource extends Resource
                 Tables\Filters\SelectFilter::make('durian_variety_id')
                     ->label('Varian')
                     ->relationship('durianVariety', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 
                 Tables\Filters\SelectFilter::make('inventory_item_id')
                     ->label('Produk Inventory')
                     ->relationship('inventoryItem', 'name')
+                    ->multiple()
                     ->searchable()
                     ->preload(),
 

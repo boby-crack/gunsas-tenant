@@ -33,6 +33,7 @@ public static function table(Table $table): Table
 {
     return $table
         ->columns([
+            Tables\Columns\TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
             Tables\Columns\TextColumn::make('name')->label('Nama Varian Durian')->searchable()->sortable()->weight('bold'),
             
             Tables\Columns\TextColumn::make('stok_pusat_butir')
