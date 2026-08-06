@@ -233,7 +233,6 @@ class WhatsappReportParser
 
         foreach ([
             'thinwall' => 'Thinwall',
-            'thinwal' => 'Thinwall',
             'stiker batang' => 'Stiker Batang',
             'stiker durpas' => 'Stiker Durpas',
             'sendok tester' => 'Sendok Tester',
@@ -244,6 +243,9 @@ class WhatsappReportParser
             'karet' => 'karet',
             'sticker batang' => 'Stiker Batang',
             'sticker durpas' => 'Stiker Durpas',
+            'soaker pad' => 'soaker pad',
+            'soaker pad' => 'soaker pad',
+
 
         ] as $label => $name) {
             $value = $this->fieldValue([$label], $lineMessage)
@@ -671,6 +673,8 @@ class WhatsappReportParser
             'tissue',
             'tisu',
             'karet',
+            'soaker pad',
+
 
         ];
 
