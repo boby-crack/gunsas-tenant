@@ -17,6 +17,11 @@ class EditStockOpname extends EditRecord
         return $data;
     }
 
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        return StockOpnameResource::normalizeFormData($data);
+    }
+
     protected function getHeaderActions(): array
     {
         return [

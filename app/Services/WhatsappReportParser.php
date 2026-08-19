@@ -220,7 +220,9 @@ class WhatsappReportParser
 
     private function parseOpname(string $lineMessage): array
     {
-        $durianItems = $this->durianOpnameItemsFromText($lineMessage);
+        $durianItems = $this->durianOpnameItemsFromText(
+            $this->messageWithoutAdditionalDurianBlocks($lineMessage),
+        );
 
         foreach ($this->additionalDurianOpnameBlocks($lineMessage) as $block) {
             $durianItems = array_merge(
@@ -244,9 +246,6 @@ class WhatsappReportParser
             'sticker batang' => 'Stiker Batang',
             'sticker durpas' => 'Stiker Durpas',
             'soaker pad' => 'soaker pad',
-            'soaker pad' => 'soaker pad',
-
-
         ] as $label => $name) {
             $value = $this->fieldValue([$label], $lineMessage)
                 ?? $this->opnameTextValue($label, $lineMessage);
@@ -314,6 +313,11 @@ class WhatsappReportParser
         }
 
         return $items;
+    }
+
+    private function messageWithoutAdditionalDurianBlocks(string $message): string
+    {
+        return trim(preg_replace('/^durian\s+[^\n:]+\s*:\s*\n.*?(?=^durian\s+[^\n:]+\s*:|\z)/msu', '', $message) ?? $message);
     }
 
     /**

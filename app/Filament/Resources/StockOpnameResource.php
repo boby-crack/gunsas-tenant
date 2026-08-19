@@ -173,6 +173,16 @@ class StockOpnameResource extends Resource
             ]);
     }
 
+    public static function normalizeFormData(array $data): array
+    {
+        if (filled($data['inventory_item_id'] ?? null)) {
+            $data['product_type'] = 'Inventory Item';
+            $data['durian_variety_id'] = null;
+        }
+
+        return $data;
+    }
+
     public static function calculateTheoreticalStock(Forms\Set $set, Forms\Get $get): void
     {
         $outletId = $get('outlet_id');

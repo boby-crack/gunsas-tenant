@@ -25,9 +25,9 @@ class StockSnapshotCalculator
 
     public function calculate(array $filters): array
     {
-        $date = Carbon::parse($filters['date'] ?? now())->toDateString();
+        [$dateFrom, $dateUntil] = $this->dateRange($filters);
         $outletFilter = $this->outletFilter($filters);
-        $outletIds = $this->outletIds($date, $outletFilter);
+        $outletIds = $this->outletIds($dateUntil, $outletFilter);
         $outlets = Outlet::query()
             ->whereKey($outletIds)
             ->orderBy('group_name')
@@ -35,10 +35,21 @@ class StockSnapshotCalculator
             ->get(['id', 'name', 'group_name'])
             ->keyBy('id');
 
-        $rows = [
-            ...$this->durianRows($date, $outlets),
-            ...$this->inventoryRows($date, $outlets),
-        ];
+        $rows = [];
+
+        if (($filters['product_category'] ?? null) !== 'non_durian') {
+            $rows = [
+                ...$rows,
+                ...$this->durianRows($dateFrom, $dateUntil, $outlets, $filters),
+            ];
+        }
+
+        if (($filters['product_category'] ?? null) !== 'durian') {
+            $rows = [
+                ...$rows,
+                ...$this->inventoryRows($dateFrom, $dateUntil, $outlets, $filters),
+            ];
+        }
 
         usort($rows, fn (array $a, array $b): int => [$a['outlet_name'], $a['sort'], $a['product_name']] <=> [$b['outlet_name'], $b['sort'], $b['product_name']]);
 
@@ -46,20 +57,40 @@ class StockSnapshotCalculator
 
         return [
             'filters' => [
-                'date' => $date,
+                'date' => $dateUntil,
+                'date_from' => $dateFrom,
+                'date_until' => $dateUntil,
                 'outlet_group' => $filters['outlet_group'] ?? null,
+                'outlet_ids' => $this->selectedOutletIds($filters),
                 'outlet_id' => $filters['outlet_id'] ?? null,
+                'product_category' => $filters['product_category'] ?? null,
+                'product_type' => $filters['product_type'] ?? null,
+                'durian_variety_id' => $filters['durian_variety_id'] ?? null,
+                'inventory_item_id' => $filters['inventory_item_id'] ?? null,
             ],
             'summary' => [
                 'start_qty' => array_sum(array_column($kgRows, 'start_qty')),
                 'in_qty' => array_sum(array_column($kgRows, 'in_qty')),
                 'sold_qty' => array_sum(array_column($kgRows, 'sold_qty')),
                 'other_out_qty' => array_sum(array_column($kgRows, 'other_out_qty')),
+                'olahan_reject_qty' => array_sum(array_map(fn (array $row): float => (float) ($row['detail']['olahan_reject'] ?? 0.0), $kgRows)),
                 'end_qty' => array_sum(array_column($kgRows, 'end_qty')),
                 'variance_qty' => array_sum(array_map(fn (array $row): float => $row['variance_qty'] ?? 0.0, $kgRows)),
             ],
             'rows' => $rows,
         ];
+    }
+
+    private function dateRange(array $filters): array
+    {
+        $dateFrom = Carbon::parse($filters['date_from'] ?? $filters['date'] ?? now())->toDateString();
+        $dateUntil = Carbon::parse($filters['date_until'] ?? $filters['date'] ?? $dateFrom)->toDateString();
+
+        if (Carbon::parse($dateUntil)->lt(Carbon::parse($dateFrom))) {
+            return [$dateUntil, $dateFrom];
+        }
+
+        return [$dateFrom, $dateUntil];
     }
 
     public function durianStockForOpnameDate(string $date, int $outletId, int $varietyId, string $productType): float
@@ -83,20 +114,24 @@ class StockSnapshotCalculator
         return $this->anchoredInventoryStockUntil($date, $outletId, $itemId, includeOpnameOnDate: false);
     }
 
-    private function durianRows(string $date, iterable $outlets): array
+    private function durianRows(string $dateFrom, string $dateUntil, iterable $outlets, array $filters = []): array
     {
         $varieties = DurianVariety::query()->orderBy('name')->get(['id', 'name'])->keyBy('id');
+        $fromExclusive = Carbon::parse($dateFrom)->subDay()->toDateString();
+        $productTypes = $this->durianProductTypes($filters);
         $rows = [];
 
         foreach ($outlets as $outlet) {
-            $varietyIds = $this->durianVarietyIds($date, (int) $outlet->id);
+            $varietyIds = filled($filters['durian_variety_id'] ?? null)
+                ? [(int) $filters['durian_variety_id']]
+                : $this->durianVarietyIds($dateUntil, (int) $outlet->id);
 
             foreach ($varietyIds as $varietyId) {
-                foreach (self::DURIAN_PRODUCTS as $productType => $label) {
-                    $startQty = $this->durianStockBefore($date, (int) $outlet->id, (int) $varietyId, $productType);
-                    $movement = $this->durianMovementOnDate($date, (int) $outlet->id, (int) $varietyId, $productType);
+                foreach ($productTypes as $productType => $label) {
+                    $startQty = $this->durianStockBefore($dateFrom, (int) $outlet->id, (int) $varietyId, $productType);
+                    $movement = $this->durianMovementForPeriod($fromExclusive, $dateUntil, (int) $outlet->id, (int) $varietyId, $productType);
                     $endQty = $startQty + $movement['in_qty'] - $movement['sold_qty'] - $movement['other_out_qty'];
-                    $physicalQty = $this->durianPhysicalOnDate($date, (int) $outlet->id, (int) $varietyId, $productType);
+                    $physicalQty = $this->durianPhysicalOnDate($dateUntil, (int) $outlet->id, (int) $varietyId, $productType);
 
                     if (! $this->shouldShowRow($startQty, $movement, $endQty, $physicalQty)) {
                         continue;
@@ -111,9 +146,11 @@ class StockSnapshotCalculator
                         'outlet_id' => (int) $outlet->id,
                         'outlet_name' => $outlet->name,
                         'group_name' => $this->groupLabel($outlet->group_name),
+                        'category' => 'Produk Durian',
                         'product_name' => $label . ' ' . ($varieties[$varietyId]->name ?? ''),
                         'product_type' => $productType,
                         'durian_variety_id' => (int) $varietyId,
+                        'durian_variety_name' => $varieties[$varietyId]->name ?? '',
                         'unit' => 'Kg',
                         'start_qty' => $startQty,
                         'in_qty' => $movement['in_qty'],
@@ -131,12 +168,26 @@ class StockSnapshotCalculator
         return $rows;
     }
 
-    private function inventoryRows(string $date, iterable $outlets): array
+    private function durianProductTypes(array $filters): array
     {
+        $productType = $filters['product_type'] ?? null;
+
+        if ($productType && array_key_exists($productType, self::DURIAN_PRODUCTS)) {
+            return [$productType => self::DURIAN_PRODUCTS[$productType]];
+        }
+
+        return self::DURIAN_PRODUCTS;
+    }
+
+    private function inventoryRows(string $dateFrom, string $dateUntil, iterable $outlets, array $filters = []): array
+    {
+        $fromExclusive = Carbon::parse($dateFrom)->subDay()->toDateString();
         $rows = [];
 
         foreach ($outlets as $outlet) {
-            $itemIds = $this->inventoryItemIds($date, (int) $outlet->id);
+            $itemIds = filled($filters['inventory_item_id'] ?? null)
+                ? [(int) $filters['inventory_item_id']]
+                : $this->inventoryItemIds($dateUntil, (int) $outlet->id);
             $items = InventoryItem::query()->whereKey($itemIds)->orderBy('name')->get(['id', 'name', 'unit'])->keyBy('id');
 
             foreach ($itemIds as $itemId) {
@@ -146,10 +197,10 @@ class StockSnapshotCalculator
                     continue;
                 }
 
-                $startQty = $this->inventoryStockBefore($date, (int) $outlet->id, (int) $itemId);
-                $movement = $this->inventoryMovementOnDate($date, (int) $outlet->id, (int) $itemId);
+                $startQty = $this->inventoryStockBefore($dateFrom, (int) $outlet->id, (int) $itemId);
+                $movement = $this->inventoryMovementForPeriod($fromExclusive, $dateUntil, (int) $outlet->id, (int) $itemId);
                 $endQty = $startQty + $movement['in_qty'] - $movement['sold_qty'] - $movement['other_out_qty'];
-                $physicalQty = $this->inventoryPhysicalOnDate($date, (int) $outlet->id, (int) $itemId);
+                $physicalQty = $this->inventoryPhysicalOnDate($dateUntil, (int) $outlet->id, (int) $itemId);
 
                 if (! $this->shouldShowRow($startQty, $movement, $endQty, $physicalQty)) {
                     continue;
@@ -160,6 +211,7 @@ class StockSnapshotCalculator
                     'outlet_id' => (int) $outlet->id,
                     'outlet_name' => $outlet->name,
                     'group_name' => $this->groupLabel($outlet->group_name),
+                    'category' => 'Produk Non-durian',
                     'product_name' => $item->name,
                     'product_type' => 'Inventory Item',
                     'inventory_item_id' => (int) $itemId,
@@ -262,6 +314,35 @@ class StockSnapshotCalculator
             ->first(['date', 'physical_qty_kg']);
     }
 
+    private function durianMovementForPeriod(string $fromExclusive, string $untilInclusive, int $outletId, int $varietyId, string $productType): array
+    {
+        $shipmentIn = $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'warehouse_to_outlet');
+        $shipmentOut = $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'outlet_to_warehouse');
+        $sold = $this->soldKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType);
+        $return = $productType === 'Buah Utuh' ? $this->returnKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId) : 0.0;
+        $productionIn = $productType === 'Daging Fresh' ? $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_kupas_kg') : 0.0;
+        $productionOut = $productType === 'Buah Utuh' ? $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_buah_kg', normalOnly: true) : 0.0;
+        $olahanReject = $productType === 'Daging Fresh' ? $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_olahan_kg') : 0.0;
+        $conversionIn = $productType === 'Daging Frozen' ? $this->conversionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'to_qty_kg') : 0.0;
+        $conversionOut = $productType === 'Daging Fresh' ? $this->conversionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'from_qty_kg') : 0.0;
+
+        return [
+            'in_qty' => $shipmentIn + $productionIn + $conversionIn,
+            'sold_qty' => $sold,
+            'other_out_qty' => $shipmentOut + $return + $productionOut + $conversionOut,
+            'detail' => [
+                'shipment_in' => $shipmentIn,
+                'shipment_out' => $shipmentOut,
+                'production_in' => $productionIn,
+                'production_out' => $productionOut,
+                'olahan_reject' => $olahanReject,
+                'conversion_in' => $conversionIn,
+                'conversion_out' => $conversionOut,
+                'return' => $return,
+            ],
+        ];
+    }
+
     private function durianMovementOnDate(string $date, int $outletId, int $varietyId, string $productType): array
     {
         $shipmentIn = $this->shipmentKgOnDate($date, $outletId, $varietyId, $productType, 'warehouse_to_outlet');
@@ -270,6 +351,7 @@ class StockSnapshotCalculator
         $return = $productType === 'Buah Utuh' ? $this->returnKgOnDate($date, $outletId, $varietyId) : 0.0;
         $productionIn = $productType === 'Daging Fresh' ? $this->productionKgOnDate($date, $outletId, $varietyId, 'qty_kupas_kg') : 0.0;
         $productionOut = $productType === 'Buah Utuh' ? $this->productionKgOnDate($date, $outletId, $varietyId, 'qty_buah_kg', normalOnly: true) : 0.0;
+        $olahanReject = $productType === 'Daging Fresh' ? $this->productionKgOnDate($date, $outletId, $varietyId, 'qty_olahan_kg') : 0.0;
         $conversionIn = $productType === 'Daging Frozen' ? $this->conversionKgOnDate($date, $outletId, $varietyId, 'to_qty_kg') : 0.0;
         $conversionOut = $productType === 'Daging Fresh' ? $this->conversionKgOnDate($date, $outletId, $varietyId, 'from_qty_kg') : 0.0;
 
@@ -282,6 +364,7 @@ class StockSnapshotCalculator
                 'shipment_out' => $shipmentOut,
                 'production_in' => $productionIn,
                 'production_out' => $productionOut,
+                'olahan_reject' => $olahanReject,
                 'conversion_in' => $conversionIn,
                 'conversion_out' => $conversionOut,
                 'return' => $return,
@@ -501,6 +584,26 @@ class StockSnapshotCalculator
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->first(['date', 'physical_qty_kg']);
+    }
+
+    private function inventoryMovementForPeriod(string $fromExclusive, string $untilInclusive, int $outletId, int $itemId): array
+    {
+        $in = $this->inventoryReceivedBetween($fromExclusive, $untilInclusive, $outletId, $itemId);
+        $sold = $this->inventorySoldBetween($fromExclusive, $untilInclusive, $outletId, $itemId);
+        $returned = $this->inventoryReturnedBetween($fromExclusive, $untilInclusive, $outletId, $itemId);
+        $consumed = $this->inventoryConsumedBetween($fromExclusive, $untilInclusive, $outletId, $itemId);
+
+        return [
+            'in_qty' => $in,
+            'sold_qty' => $sold,
+            'other_out_qty' => $returned + $consumed,
+            'detail' => [
+                'shipment_in' => $in,
+                'sold' => $sold,
+                'shipment_out' => $returned,
+                'consumed' => $consumed,
+            ],
+        ];
     }
 
     private function inventoryMovementOnDate(string $date, int $outletId, int $itemId): array
@@ -755,8 +858,10 @@ class StockSnapshotCalculator
 
     private function outletFilter(array $filters): mixed
     {
-        if (! empty($filters['outlet_ids']) && is_array($filters['outlet_ids'])) {
-            return collect($filters['outlet_ids'])->map(fn ($id) => (int) $id)->filter()->values()->all();
+        $selectedOutletIds = $this->selectedOutletIds($filters);
+
+        if ($selectedOutletIds !== []) {
+            return $selectedOutletIds;
         }
 
         if (filled($filters['outlet_id'] ?? null)) {
@@ -770,6 +875,26 @@ class StockSnapshotCalculator
         }
 
         return null;
+    }
+
+    private function selectedOutletIds(array $filters): array
+    {
+        $outletIds = $filters['outlet_ids'] ?? [];
+
+        if (! is_array($outletIds)) {
+            $outletIds = filled($outletIds) ? [$outletIds] : [];
+        }
+
+        if (filled($filters['outlet_id'] ?? null)) {
+            $outletIds[] = $filters['outlet_id'];
+        }
+
+        return collect($outletIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function shouldShowRow(float $startQty, array $movement, float $endQty, ?float $physicalQty): bool

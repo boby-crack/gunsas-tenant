@@ -119,6 +119,7 @@ class BusinessInsightsCalculator
             'profit_by_outlet' => $this->profitByOutlet($filters, $outletFilter),
             'top_outlets' => $this->topOutlets($filters, $outletFilter),
             'expense_categories' => $this->expenseCategories($filters, $outletFilter),
+            'trends' => $this->salesTrends($filters, $outletFilter),
         ];
 
         if ($includeOperationalReports) {
@@ -853,6 +854,7 @@ class BusinessInsightsCalculator
             'estimated_stock_kg' => 0.0,
             'physical_stock_kg' => 0.0,
             'variance_kg' => 0.0,
+            'physical_stock_rows' => 0,
         ];
 
         $varieties = DurianVariety::query()->orderBy('name')->get(['id', 'name'])->keyBy('id');
@@ -884,8 +886,12 @@ class BusinessInsightsCalculator
                     $summary['received_kg'] += $row['received_kg'];
                     $summary['sold_kg'] += $row['sold_kg'];
                     $summary['estimated_stock_kg'] += $row['estimated_stock_kg'];
-                    $summary['physical_stock_kg'] += $row['physical_stock_kg'];
-                    $summary['variance_kg'] += $row['variance_kg'];
+
+                    if ($row['has_physical_stock']) {
+                        $summary['physical_stock_kg'] += $row['physical_stock_kg'];
+                        $summary['variance_kg'] += $row['variance_kg'];
+                        $summary['physical_stock_rows']++;
+                    }
                 }
             }
         }
@@ -995,6 +1001,7 @@ class BusinessInsightsCalculator
         $outKg = $soldKg + $shipmentOutKg + $returnKg + $productionOutKg + $conversionOutKg;
         $estimatedStockKg = $startKg + $receivedKg - $outKg;
         $physicalStockKg = $this->latestPhysicalStockKgForOutletProduct($filters, $outletId, $varietyId, $productType);
+        $hasPhysicalStock = $physicalStockKg !== null;
 
         return [
             'start_kg' => $startKg,
@@ -1010,7 +1017,8 @@ class BusinessInsightsCalculator
             'out_kg' => $outKg,
             'estimated_stock_kg' => $estimatedStockKg,
             'physical_stock_kg' => $physicalStockKg,
-            'variance_kg' => $physicalStockKg - $estimatedStockKg,
+            'has_physical_stock' => $hasPhysicalStock,
+            'variance_kg' => $hasPhysicalStock ? $physicalStockKg - $estimatedStockKg : null,
         ];
     }
 
@@ -1041,9 +1049,9 @@ class BusinessInsightsCalculator
             ->sum($column);
     }
 
-    private function latestPhysicalStockKgForOutletProduct(array $filters, int $outletId, int $varietyId, string $productType): float
+    private function latestPhysicalStockKgForOutletProduct(array $filters, int $outletId, int $varietyId, string $productType): ?float
     {
-        return (float) StockOpname::query()
+        $physicalStockKg = StockOpname::query()
             ->where('outlet_id', $outletId)
             ->where('durian_variety_id', $varietyId)
             ->where('product_type', $productType)
@@ -1051,6 +1059,8 @@ class BusinessInsightsCalculator
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->value('physical_qty_kg');
+
+        return $physicalStockKg === null ? null : (float) $physicalStockKg;
     }
 
     private function hasStockMovement(array $movement): bool
@@ -1775,8 +1785,19 @@ class BusinessInsightsCalculator
             + $sellableInventoryLoss['amount'];
 
         $corrections = collect();
+        $pluses = collect();
 
         if ($includeDurianLoss) {
+            $plusQuery = $this->periodQuery(StockOpname::query(), $filters, $outletId)
+                ->whereIn('product_type', $productTypes);
+            $this->applyVarietyFilter($plusQuery, $filters);
+
+            $pluses = $plusQuery
+                ->where('difference_qty_kg', '>', 0)
+                ->selectRaw('product_type, COALESCE(SUM(difference_qty_kg), 0) as plus_kg')
+                ->groupBy('product_type')
+                ->pluck('plus_kg', 'product_type');
+
             $correctionQuery = $this->periodQuery(StockOpname::query(), $filters, $outletId)
                 ->whereIn('product_type', $productTypes);
             $this->applyVarietyFilter($correctionQuery, $filters);
@@ -1792,9 +1813,15 @@ class BusinessInsightsCalculator
         $buahCorrection = (float) ($corrections['Buah Utuh'] ?? 0);
         $freshCorrection = (float) ($corrections['Daging Fresh'] ?? 0);
         $frozenCorrection = (float) ($corrections['Daging Frozen'] ?? 0);
+        $buahPlus = (float) ($pluses['Buah Utuh'] ?? 0);
+        $freshPlus = (float) ($pluses['Daging Fresh'] ?? 0);
+        $frozenPlus = (float) ($pluses['Daging Frozen'] ?? 0);
         $correctionAmount = ($buahCorrection * $avgModalBuah)
             + ($freshCorrection * $avgModalFresh)
             + ($frozenCorrection * $avgModalFrozen);
+        $variantDetails = $includeDurianLoss
+            ? $this->opnameLossVariantDetails($filters, $outletId, $productTypes)
+            : [];
 
         return [
             'buah_kg' => $buahLoss,
@@ -1808,12 +1835,69 @@ class BusinessInsightsCalculator
             'correction_fresh_kg' => $freshCorrection,
             'correction_frozen_kg' => $frozenCorrection,
             'correction_total_kg' => $buahCorrection + $freshCorrection + $frozenCorrection,
+            'plus_buah_kg' => $buahPlus,
+            'plus_fresh_kg' => $freshPlus,
+            'plus_frozen_kg' => $frozenPlus,
+            'plus_total_kg' => $buahPlus + $freshPlus + $frozenPlus,
+            'plus_normal_kg' => max(0, ($buahPlus + $freshPlus + $frozenPlus) - ($buahCorrection + $freshCorrection + $frozenCorrection)),
             'correction_amount' => $correctionAmount,
             'inventory_item_qty' => $sellableInventoryLoss['qty'],
             'inventory_item_amount' => $sellableInventoryLoss['amount'],
             'inventory_item_items' => $sellableInventoryLoss['items'],
+            'variant_details' => $variantDetails,
             'amount' => max(0, $grossAmount - $correctionAmount),
         ];
+    }
+
+    private function opnameLossVariantDetails(array $filters, mixed $outletId, array $productTypes): array
+    {
+        $query = $this->periodQuery(StockOpname::query(), $filters, $outletId)
+            ->whereIn('product_type', $productTypes)
+            ->where(function (Builder $query): void {
+                $query
+                    ->where('difference_qty_kg', '<', 0)
+                    ->orWhere(function (Builder $query): void {
+                        $query
+                            ->where('system_qty_kg', '<', 0)
+                            ->where('difference_qty_kg', '>', 0);
+                    });
+            })
+            ->with('durianVariety:id,name');
+        $this->applyVarietyFilter($query, $filters);
+
+        return $query
+            ->get(['id', 'durian_variety_id', 'product_type', 'system_qty_kg', 'difference_qty_kg'])
+            ->groupBy(fn (StockOpname $opname): string => ($opname->product_type ?? '-') . '|' . ($opname->durianVariety?->name ?? 'Tanpa Varian'))
+            ->map(function ($rows, string $key): array {
+                [$productType, $variant] = explode('|', $key, 2);
+
+                $lossKg = (float) $rows->sum(fn (StockOpname $opname): float => min(0, (float) $opname->difference_qty_kg));
+                $correctionKg = (float) $rows->sum(function (StockOpname $opname): float {
+                    $systemQty = (float) $opname->system_qty_kg;
+                    $differenceQty = (float) $opname->difference_qty_kg;
+
+                    if ($systemQty >= 0 || $differenceQty <= 0) {
+                        return 0.0;
+                    }
+
+                    return min(abs($systemQty), $differenceQty);
+                });
+
+                return [
+                    'product_type' => $productType,
+                    'product_label' => $this->productTypeLabel($productType),
+                    'variant' => $variant,
+                    'loss_kg' => abs($lossKg),
+                    'correction_kg' => $correctionKg,
+                ];
+            })
+            ->filter(fn (array $row): bool => $row['loss_kg'] > 0 || $row['correction_kg'] > 0)
+            ->sortBy([
+                ['product_type', 'asc'],
+                ['variant', 'asc'],
+            ])
+            ->values()
+            ->all();
     }
 
     private function freshRecoveryOpnameLossExemptKg(array $filters, mixed $outletId): float
@@ -2177,6 +2261,120 @@ class BusinessInsightsCalculator
             ->unique(fn (StockOpname $record) => $record->outlet_id . ':' . $record->durian_variety_id . ':' . $record->product_type);
 
         return $records->sum('physical_qty_kg');
+    }
+
+    private function salesTrends(array $filters, mixed $outletId): array
+    {
+        return [
+            'weekly_sales' => $this->weeklySalesTrend($filters, $outletId),
+            'monthly_sales' => $this->monthlySalesTrend($filters, $outletId),
+        ];
+    }
+
+    private function weeklySalesTrend(array $filters, mixed $outletId): array
+    {
+        [, $until] = $this->trendRange($filters);
+
+        $rows = [];
+        $cursor = $until->copy()->subDays(27)->startOfDay();
+
+        for ($week = 1; $week <= 4; $week++) {
+            $start = $cursor->copy();
+            $end = $cursor->copy()->addDays(6);
+
+            if ($end->gt($until)) {
+                $end = $until->copy();
+            }
+
+            $periodFilters = array_merge($filters, [
+                'date_from' => $start->toDateString(),
+                'date_until' => $end->toDateString(),
+            ]);
+
+            $totals = $this->salesTotals($periodFilters, $outletId);
+
+            $rows[] = [
+                'label' => $start->format('d M') . ' - ' . $end->format('d M'),
+                'period' => $start->format('d M') . ' - ' . $end->format('d M'),
+                'gross_sales' => (float) ($totals['gross_sales'] ?? 0),
+                'net_sales' => (float) ($totals['net_sales'] ?? 0),
+                'gunsas_revenue' => (float) ($totals['gunsas_revenue'] ?? 0),
+                'kg' => (float) ($totals['buah_sold_kg'] ?? 0)
+                    + (float) ($totals['fresh_sold_kg'] ?? 0)
+                    + (float) ($totals['frozen_sold_kg'] ?? 0),
+            ];
+
+            $cursor->addDays(7);
+        }
+
+        return $this->withTrendPercentages($rows);
+    }
+
+    private function monthlySalesTrend(array $filters, mixed $outletId): array
+    {
+        [, $until] = $this->trendRange($filters);
+
+        $rows = [];
+        $cursor = $until->copy()->startOfMonth()->subMonthsNoOverflow(3);
+
+        for ($month = 1; $month <= 4; $month++) {
+            $monthStart = $cursor->copy()->startOfMonth();
+            $monthEnd = $cursor->copy()->endOfMonth();
+
+            if ($monthEnd->gt($until)) {
+                $monthEnd = $until->copy();
+            }
+
+            $periodFilters = array_merge($filters, [
+                'date_from' => $monthStart->toDateString(),
+                'date_until' => $monthEnd->toDateString(),
+            ]);
+
+            $totals = $this->salesTotals($periodFilters, $outletId);
+
+            $rows[] = [
+                'label' => $monthStart->format('M Y'),
+                'period' => $monthStart->format('d M') . ' - ' . $monthEnd->format('d M'),
+                'gross_sales' => (float) ($totals['gross_sales'] ?? 0),
+                'net_sales' => (float) ($totals['net_sales'] ?? 0),
+                'gunsas_revenue' => (float) ($totals['gunsas_revenue'] ?? 0),
+                'kg' => (float) ($totals['buah_sold_kg'] ?? 0)
+                    + (float) ($totals['fresh_sold_kg'] ?? 0)
+                    + (float) ($totals['frozen_sold_kg'] ?? 0),
+            ];
+
+            $cursor->addMonthNoOverflow();
+        }
+
+        return $this->withTrendPercentages($rows);
+    }
+
+    private function trendRange(array $filters): array
+    {
+        $from = Carbon::parse($filters['date_from'] ?? now()->startOfMonth()->toDateString())->startOfDay();
+        $until = Carbon::parse($filters['date_until'] ?? now()->toDateString())->startOfDay();
+
+        if ($until->lt($from)) {
+            [$from, $until] = [$until, $from];
+        }
+
+        return [$from, $until];
+    }
+
+    private function withTrendPercentages(array $rows, string $valueKey = 'net_sales'): array
+    {
+        $values = array_map(fn (array $row): float => (float) ($row[$valueKey] ?? 0), $rows);
+        $max = count($values) > 0 ? max($values) : 0.0;
+
+        return array_map(function (array $row) use ($max, $valueKey): array {
+            $value = (float) ($row[$valueKey] ?? 0);
+
+            $row['percent'] = $max > 0
+                ? max(3.0, min(100.0, ($value / $max) * 100))
+                : 0.0;
+
+            return $row;
+        }, $rows);
     }
 
     private function expenseCategories(array $filters, mixed $outletId): array

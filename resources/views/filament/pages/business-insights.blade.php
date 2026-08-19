@@ -626,6 +626,31 @@
                     <div class="flex items-start justify-between gap-3"><span class="text-gray-600 dark:text-gray-300">Kupas Fresh</span><span class="shrink-0 text-right font-medium">{{ $kg($insights['costs']['opname_loss_kg']['fresh_kg']) }}</span></div>
                     <div class="flex items-start justify-between gap-3"><span class="text-gray-600 dark:text-gray-300">Durpas Frozen</span><span class="shrink-0 text-right font-medium">{{ $kg($insights['costs']['opname_loss_kg']['frozen_kg']) }}</span></div>
                     <div class="flex items-start justify-between gap-3 border-t border-gray-200 pt-3 dark:border-gray-800"><span class="font-medium">Total KG Hilang</span><span class="shrink-0 text-right font-semibold">{{ $kg($insights['costs']['opname_loss_kg']['total_kg']) }}</span></div>
+                    @if (! empty($insights['costs']['opname_loss_kg']['variant_details']))
+                        <div class="border-t border-gray-200 pt-3 dark:border-gray-800">
+                            <p class="mb-2 font-medium">Rincian Varian</p>
+                            <div class="space-y-2">
+                                @foreach ($insights['costs']['opname_loss_kg']['variant_details'] as $detail)
+                                    <div class="rounded-md bg-gray-50 p-2 dark:bg-gray-950">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p class="font-medium">{{ $detail['variant'] }}</p>
+                                                <p class="text-[11px] text-gray-500">{{ $detail['product_label'] }}</p>
+                                            </div>
+                                            <div class="shrink-0 text-right">
+                                                @if (($detail['loss_kg'] ?? 0) > 0)
+                                                    <p class="font-semibold text-danger-600">{{ $kg($detail['loss_kg']) }}</p>
+                                                @endif
+                                                @if (($detail['correction_kg'] ?? 0) > 0)
+                                                    <p class="text-[11px] font-medium text-success-600">Koreksi {{ $kg($detail['correction_kg']) }}</p>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
                     @if (($insights['costs']['opname_loss_kg']['inventory_item_amount'] ?? 0) > 0)
                         <div class="border-t border-gray-200 pt-3 dark:border-gray-800"></div>
                         <div class="flex items-start justify-between gap-3"><span class="font-medium">Loss Produk Jualan</span><span class="shrink-0 text-right font-semibold text-danger-600">{{ $money($insights['costs']['opname_loss_kg']['inventory_item_amount']) }}</span></div>
@@ -636,9 +661,35 @@
                             </div>
                         @endforeach
                     @endif
-                    <div class="flex items-start justify-between gap-3"><span class="text-gray-600 dark:text-gray-300">Koreksi Stok Minus</span><span class="shrink-0 text-right font-medium text-success-600">{{ $kg($insights['costs']['opname_loss_kg']['correction_total_kg'] ?? 0) }}</span></div>
-                    <div class="flex items-start justify-between gap-3"><span class="text-gray-600 dark:text-gray-300">Nilai Koreksi</span><span class="shrink-0 text-right font-medium text-success-600">- {{ $money($insights['costs']['opname_loss_kg']['correction_amount'] ?? 0) }}</span></div>
-                    <div class="flex items-start justify-between gap-3 border-t border-gray-200 pt-3 dark:border-gray-800"><span class="font-medium">Net Loss Opname</span><span class="shrink-0 text-right font-semibold">{{ $money($insights['costs']['opname_loss']) }}</span></div>
+                    <div class="border-t border-gray-200 pt-3 dark:border-gray-800"></div>
+                    <div class="flex items-start justify-between gap-3"><span class="text-gray-600 dark:text-gray-300">Total stok plus fisik</span><span class="shrink-0 text-right font-medium text-success-600">{{ $kg($insights['costs']['opname_loss_kg']['plus_total_kg'] ?? 0) }}</span></div>
+                    <div class="flex items-start justify-between gap-3"><span class="text-gray-600 dark:text-gray-300">Plus normal / aset tambahan</span><span class="shrink-0 text-right font-medium text-success-600">{{ $kg($insights['costs']['opname_loss_kg']['plus_normal_kg'] ?? 0) }}</span></div>
+                    <div class="flex items-start justify-between gap-3"><span class="text-gray-600 dark:text-gray-300">Yang mengurangi loss karena stok sistem minus</span><span class="shrink-0 text-right font-medium text-success-600">{{ $kg($insights['costs']['opname_loss_kg']['correction_total_kg'] ?? 0) }}</span></div>
+                    <div class="flex items-start justify-between gap-3"><span class="text-gray-600 dark:text-gray-300">Nilai pengurang loss</span><span class="shrink-0 text-right font-medium text-success-600">- {{ $money($insights['costs']['opname_loss_kg']['correction_amount'] ?? 0) }}</span></div>
+                    <div class="flex items-start justify-between gap-3 border-t border-gray-200 pt-3 dark:border-gray-800"><span class="font-medium">Loss Opname Setelah Koreksi</span><span class="shrink-0 text-right font-semibold">{{ $money($insights['costs']['opname_loss']) }}</span></div>
+                    <details class="rounded-md bg-gray-50 p-3 text-[11px] dark:bg-gray-950">
+                        <summary class="cursor-pointer font-medium">Cara hitung loss opname</summary>
+                        <div class="mt-3 space-y-2 text-gray-600 dark:text-gray-300">
+                            <p>Total stok plus fisik adalah semua selisih plus di stock opname. Hanya bagian plus yang menutup stok sistem minus yang dipakai sebagai pengurang loss.</p>
+                            <p>Loss fisik minus dihitung dari selisih minus dikali modal average tiap kategori: buah pakai modal buah, fresh pakai modal fresh, frozen pakai modal frozen.</p>
+                            <div class="flex items-start justify-between gap-3">
+                                <span>Total stok plus fisik</span>
+                                <span class="shrink-0 text-right font-medium text-success-600">{{ $kg($insights['costs']['opname_loss_kg']['plus_total_kg'] ?? 0) }}</span>
+                            </div>
+                            <div class="flex items-start justify-between gap-3">
+                                <span>Loss fisik minus</span>
+                                <span class="shrink-0 text-right font-medium">{{ $money($insights['costs']['opname_loss_kg']['gross_amount'] ?? $insights['costs']['opname_loss']) }}</span>
+                            </div>
+                            <div class="flex items-start justify-between gap-3">
+                                <span>Koreksi dari stok sistem minus</span>
+                                <span class="shrink-0 text-right font-medium text-success-600">- {{ $money($insights['costs']['opname_loss_kg']['correction_amount'] ?? 0) }}</span>
+                            </div>
+                            <div class="flex items-start justify-between gap-3 border-t border-gray-200 pt-2 font-semibold dark:border-gray-800">
+                                <span>Loss opname setelah koreksi</span>
+                                <span class="shrink-0 text-right">{{ $money($insights['costs']['opname_loss']) }}</span>
+                            </div>
+                        </div>
+                    </details>
                 </div>
             </div>
 
@@ -711,9 +762,15 @@
                     <p class="text-gray-500">Estimasi Sisa</p>
                     <p class="font-semibold">{{ $kg($insights['stock_movement']['summary']['estimated_stock_kg'] ?? 0) }}</p>
                 </div>
+                @php
+                    $stockHasOpname = ($insights['stock_movement']['summary']['physical_stock_rows'] ?? 0) > 0;
+                    $stockVariance = $insights['stock_movement']['summary']['variance_kg'] ?? null;
+                @endphp
                 <div class="rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800">
                     <p class="text-gray-500">Selisih Opname</p>
-                    <p class="font-semibold {{ ($insights['stock_movement']['summary']['variance_kg'] ?? 0) < 0 ? 'text-danger-600' : 'text-success-600' }}">{{ $kg($insights['stock_movement']['summary']['variance_kg'] ?? 0) }}</p>
+                    <p class="font-semibold {{ $stockHasOpname ? (($stockVariance ?? 0) < 0 ? 'text-danger-600' : 'text-success-600') : 'text-gray-500' }}">
+                        {{ $stockHasOpname ? $kg($stockVariance ?? 0) : '-' }}
+                    </p>
                 </div>
                 </div>
             </div>
@@ -737,7 +794,8 @@
                         @forelse (($insights['stock_movement']['rows'] ?? []) as $row)
                             @php
                                 $otherOut = (float) $row['out_kg'] - (float) $row['sold_kg'];
-                                $variance = (float) $row['variance_kg'];
+                                $hasPhysicalStock = (bool) ($row['has_physical_stock'] ?? false);
+                                $variance = $hasPhysicalStock ? (float) $row['variance_kg'] : null;
                             @endphp
                             <tr>
                                 <td class="px-2 py-2">
@@ -778,9 +836,11 @@
                                     </div>
                                 </td>
                                 <td class="px-2 py-2 text-right font-semibold">{{ $kg($row['estimated_stock_kg']) }}</td>
-                                <td class="px-2 py-2 text-right font-medium">{{ $kg($row['physical_stock_kg']) }}</td>
-                                <td class="px-2 py-2 text-right font-semibold {{ $variance < 0 ? 'text-danger-600' : 'text-success-600' }}">
-                                    {{ $kg($variance) }}
+                                <td class="px-2 py-2 text-right font-medium {{ $hasPhysicalStock ? '' : 'text-gray-500' }}">
+                                    {{ $hasPhysicalStock ? $kg($row['physical_stock_kg']) : '-' }}
+                                </td>
+                                <td class="px-2 py-2 text-right font-semibold {{ $hasPhysicalStock ? (($variance ?? 0) < 0 ? 'text-danger-600' : 'text-success-600') : 'text-gray-500' }}">
+                                    {{ $hasPhysicalStock ? $kg($variance ?? 0) : '-' }}
                                 </td>
                             </tr>
                         @empty
