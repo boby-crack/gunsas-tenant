@@ -3,9 +3,12 @@
 namespace App\Services;
 
 use App\Models\InventoryItem;
+use App\Models\DurianVariety;
 use App\Models\ProductConversion;
 use App\Models\ProductReturn;
 use App\Models\Production;
+use App\Models\Sale;
+use App\Models\SaleItem;
 use App\Models\StockOpname;
 use App\Models\WhatsappReport;
 use Illuminate\Database\Eloquent\Model;
@@ -35,6 +38,8 @@ class WhatsappReportApprover
 
         return DB::transaction(function () use ($report, $payload) {
             $target = match ($report->report_type) {
+                'mixed' => $this->createMixedReports($payload),
+                'sales' => $this->createSales($payload),
                 'retur' => $this->createProductReturn($payload),
                 'rijek' => $this->createReturnProduction($payload),
                 'kupas' => $this->createProduction($payload),
@@ -76,6 +81,98 @@ class WhatsappReportApprover
                     : $this->targetLabel($targetRecord),
             ];
         });
+    }
+
+    /**
+     * @return array<int, Model>
+     */
+    private function createMixedReports(array $payload): array
+    {
+        $records = [];
+
+        foreach ($payload['reports'] ?? [] as $report) {
+            $reportPayload = $report['parsed_payload'] ?? [];
+            $target = match ($report['report_type'] ?? null) {
+                'sales' => $this->createSales($reportPayload),
+                'opname' => $this->createStockOpnames($reportPayload),
+                'retur' => $this->createProductReturn($reportPayload),
+                'rijek' => $this->createReturnProduction($reportPayload),
+                'kupas' => $this->createProduction($reportPayload),
+                'frozen', 'fresh_loss' => $this->createProductConversion($reportPayload),
+                default => null,
+            };
+
+            if (is_array($target)) {
+                $records = array_merge($records, $target);
+            } elseif ($target instanceof Model) {
+                $records[] = $target;
+            }
+        }
+
+        return $records;
+    }
+
+    private function createSales(array $payload): Sale
+    {
+        $varietyId = $payload['durian_variety_id'] ?? DurianVariety::query()->value('id');
+
+        $sale = Sale::firstOrNew([
+            'outlet_id' => $payload['outlet_id'],
+            'durian_variety_id' => $varietyId,
+            'date' => $payload['date'],
+        ]);
+
+        $sale->fill([
+            'outlet_id' => $payload['outlet_id'],
+            'durian_variety_id' => $varietyId,
+            'date' => $payload['date'],
+            'buah_sold_kg' => $sale->buah_sold_kg ?? 0,
+            'buah_sold_butir' => $sale->buah_sold_butir ?? 0,
+            'buah_price_per_kg' => $sale->buah_price_per_kg ?? 0,
+            'buah_subtotal' => $sale->buah_subtotal ?? 0,
+            'fresh_sold_kg' => $sale->fresh_sold_kg ?? 0,
+            'fresh_sold_pack' => $sale->fresh_sold_pack ?? 0,
+            'fresh_price_per_kg' => $sale->fresh_price_per_kg ?? 0,
+            'fresh_subtotal' => $sale->fresh_subtotal ?? 0,
+            'frozen_sold_kg' => $sale->frozen_sold_kg ?? 0,
+            'frozen_sold_pack' => $sale->frozen_sold_pack ?? 0,
+            'frozen_price_per_kg' => $sale->frozen_price_per_kg ?? 0,
+            'frozen_subtotal' => $sale->frozen_subtotal ?? 0,
+            'grand_total_revenue' => $sale->grand_total_revenue ?? 0,
+            'discount_amount' => $sale->discount_amount ?? 0,
+            'sales_return_amount' => $sale->sales_return_amount ?? 0,
+            'net_sales' => $sale->net_sales ?? 0,
+        ]);
+        $sale->save();
+
+        foreach ($payload['sales_items'] ?? [] as $item) {
+            $inventoryItem = InventoryItem::find($item['inventory_item_id'] ?? null);
+            $quantity = (float) ($item['quantity'] ?? 0);
+            $unitPrice = (float) ($item['unit_price'] ?? 0);
+            $grossSales = (float) ($item['gross_sales'] ?? ($quantity * $unitPrice));
+            $unitCost = (float) ($inventoryItem?->default_unit_cost ?? 0);
+
+            SaleItem::create([
+                'sale_id' => $sale->id,
+                'inventory_item_id' => $inventoryItem?->id,
+                'item_name' => $inventoryItem?->name ?? (string) ($item['inventory_item_name'] ?? $item['raw_product_name'] ?? 'Produk WA'),
+                'category' => $inventoryItem?->category ?? 'produk_jualan',
+                'unit' => $inventoryItem?->unit ?? (string) ($item['unit'] ?? 'unit'),
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+                'gross_sales' => $grossSales,
+                'discount_amount' => 0,
+                'sales_return_amount' => 0,
+                'net_sales' => $grossSales,
+                'unit_cost' => $unitCost,
+                'total_cost' => $quantity * $unitCost,
+                'notes' => 'Input sales dari WhatsApp: ' . ($item['raw_product_name'] ?? $item['inventory_item_name'] ?? '-'),
+            ]);
+        }
+
+        $sale->recalculateHeaderTotals();
+
+        return $sale;
     }
 
     /**
@@ -185,7 +282,7 @@ class WhatsappReportApprover
 
             $records[] = StockOpname::create([
                 'outlet_id' => $payload['outlet_id'],
-                'durian_variety_id' => null,
+                'durian_variety_id' => $payload['durian_variety_id'] ?? DurianVariety::query()->value('id'),
                 'inventory_item_id' => $inventoryItem->id,
                 'date' => $date,
                 'product_type' => 'Inventory Item',
@@ -312,6 +409,13 @@ class WhatsappReportApprover
             return 'Product Return #' . $targets[0]->id . ' + Production #' . $targets[1]->id;
         }
 
-        return 'Stock Opname ' . count($targets) . ' record';
+        $counts = collect($targets)
+            ->map(fn (Model $target): string => class_basename($target))
+            ->countBy()
+            ->map(fn (int $count, string $model): string => $model . ' ' . $count . ' record')
+            ->values()
+            ->implode(' + ');
+
+        return $counts ?: count($targets) . ' record';
     }
 }

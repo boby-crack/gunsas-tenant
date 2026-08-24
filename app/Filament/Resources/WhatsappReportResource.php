@@ -48,10 +48,13 @@ class WhatsappReportResource extends Resource
                         Forms\Components\Select::make('report_type')
                             ->label('Jenis Laporan')
                             ->options([
+                                'mixed' => 'Laporan Campuran',
+                                'sales' => 'Sales Produk',
                                 'retur' => 'Retur',
                                 'rijek' => 'Data Rijek',
                                 'kupas' => 'Buah ke Kupas Fresh',
                                 'frozen' => 'Kupas Fresh ke Durpas Frozen',
+                                'fresh_loss' => 'Kupas Fresh Loss / Olahan',
                                 'opname' => 'Stock Opname',
                             ]),
 
@@ -113,13 +116,15 @@ class WhatsappReportResource extends Resource
                     ->label('Jenis')
                     ->badge()
                     ->sortable()
-                    ->colors([
-                        'warning' => 'retur',
-                        'danger' => 'rijek',
-                        'success' => 'kupas',
-                        'info' => 'frozen',
-                        'primary' => 'opname',
-                    ]),
+                    ->color(fn (?string $state): string => match ($state) {
+                        'mixed' => 'gray',
+                        'sales', 'kupas' => 'success',
+                        'retur' => 'warning',
+                        'rijek', 'fresh_loss' => 'danger',
+                        'frozen' => 'info',
+                        'opname' => 'primary',
+                        default => 'gray',
+                    }),
 
                 Tables\Columns\TextColumn::make('confidence')
                     ->label('Confidence')
@@ -148,10 +153,13 @@ class WhatsappReportResource extends Resource
                     ->label('Jenis Laporan')
                     ->multiple()
                     ->options([
+                        'mixed' => 'Laporan Campuran',
+                        'sales' => 'Sales Produk',
                         'retur' => 'Retur',
                         'rijek' => 'Data Rijek',
                         'kupas' => 'Buah ke Kupas Fresh',
                         'frozen' => 'Kupas Fresh ke Durpas Frozen',
+                        'fresh_loss' => 'Kupas Fresh Loss / Olahan',
                         'opname' => 'Stock Opname',
                     ]),
 

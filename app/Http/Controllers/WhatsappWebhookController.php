@@ -245,6 +245,8 @@ class WhatsappWebhookController extends Controller
     private function reportTypeLabel(?string $type): string
     {
         return match ($type) {
+            'mixed' => 'Laporan Campuran',
+            'sales' => 'Sales Produk',
             'retur' => 'Retur',
             'rijek' => 'Data Rijek',
             'kupas' => 'Buah ke Kupas Fresh',
@@ -355,6 +357,11 @@ class WhatsappWebhookController extends Controller
     private function detailReply(WhatsappReport $report): string
     {
         $payload = $report->parsed_payload ?? [];
+
+        if ($report->report_type === 'mixed') {
+            return $this->mixedDetailReply($report, $payload);
+        }
+
         $lines = [
             'Ini ringkasan draft #' . $report->id . ':',
             'Jenis: ' . $this->reportTypeLabel($report->report_type),
@@ -383,9 +390,47 @@ class WhatsappWebhookController extends Controller
         return implode("\n", $lines);
     }
 
+    private function mixedDetailReply(WhatsappReport $report, array $payload): string
+    {
+        $lines = [
+            'Ini ringkasan draft #' . $report->id . ':',
+            'Jenis: Laporan Campuran',
+        ];
+
+        foreach ($payload['reports'] ?? [] as $index => $subReport) {
+            $subPayload = $subReport['parsed_payload'] ?? [];
+
+            $lines[] = '';
+            $lines[] = ($index + 1) . '. ' . $this->reportTypeLabel($subReport['report_type'] ?? null);
+            $lines[] = 'Outlet: ' . ($subPayload['outlet_name'] ?? '-');
+            $lines[] = 'Tanggal: ' . ($subPayload['date'] ?? '-');
+
+            foreach ($this->quantityLines($subReport['report_type'] ?? null, $subPayload) as $line) {
+                $lines[] = $line;
+            }
+
+            if (! empty($subReport['missing_fields'])) {
+                $lines[] = 'Yang masih kurang: ' . implode(', ', $subReport['missing_fields']);
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = 'Keyakinan baca: ' . $report->confidence . '%';
+
+        if ($report->status === 'pending_approval') {
+            $lines[] = 'Kalau sudah cocok, ketik approve #' . $report->id . '.';
+        } elseif ($report->status === 'needs_review') {
+            $lines[] = 'Draft ini perlu dirapikan di web dulu.';
+        }
+
+        return implode("\n", $lines);
+    }
+
     private function quantityLines(?string $type, array $payload): array
     {
         return match ($type) {
+            'mixed' => $this->mixedQuantityLines($payload),
+            'sales' => $this->salesQuantityLines($payload),
             'retur' => [
                 'Berat: ' . $this->formatKg($payload['qty_kg'] ?? null),
                 'Butir: ' . ($payload['qty_butir'] ?? '-'),
@@ -420,6 +465,37 @@ class WhatsappWebhookController extends Controller
             'opname' => $this->opnameQuantityLines($payload),
             default => [],
         };
+    }
+
+    private function mixedQuantityLines(array $payload): array
+    {
+        $lines = [];
+
+        foreach ($payload['reports'] ?? [] as $report) {
+            $subPayload = $report['parsed_payload'] ?? [];
+            $lines[] = '- ' . $this->reportTypeLabel($report['report_type'] ?? null)
+                . ': ' . count($this->quantityLines($report['report_type'] ?? null, $subPayload)) . ' ringkasan';
+        }
+
+        return $lines;
+    }
+
+    private function salesQuantityLines(array $payload): array
+    {
+        $items = $payload['sales_items'] ?? [];
+        $lines = ['Produk: ' . count($items) . ' item'];
+
+        foreach (array_slice($items, 0, 8) as $item) {
+            $lines[] = '- ' . ($item['inventory_item_name'] ?? $item['raw_product_name'] ?? 'Produk')
+                . ': ' . number_format((float) ($item['quantity'] ?? 0), 3, ',', '.')
+                . ' ' . ($item['unit'] ?? 'unit');
+        }
+
+        if (count($items) > 8) {
+            $lines[] = '- +' . (count($items) - 8) . ' item lainnya';
+        }
+
+        return $lines;
     }
 
     private function opnameQuantityLines(array $payload): array

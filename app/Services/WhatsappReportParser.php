@@ -17,46 +17,65 @@ class WhatsappReportParser
         $normalized = $this->normalize($message);
         $lineMessage = $this->normalizeLines($message);
         $type = $this->detectType($normalized);
-        $outletText = $this->fieldValue(['nama otlet', 'nama outlet', 'otlet', 'outlet'], $lineMessage);
-        $varietyText = $this->fieldValue(['varian', 'jenis durian', 'durian'], $lineMessage);
-        $outlet = $this->matchModel($outletText ?: $normalized, Outlet::all(['id', 'name', 'aliases']), $outletText ? 60 : 25);
-        $variety = $this->matchModel($varietyText ?: $normalized, DurianVariety::all(['id', 'name']), $varietyText ? 60 : 25);
 
-        if ($type === 'rijek' && blank($varietyText)) {
-            $record = DurianVariety::query()
-                ->where('name', 'like', '%MONTHONG%')
-                ->orWhere('name', 'like', '%MONTONG%')
-                ->first(['id', 'name']);
+        $salesSection = $this->salesSection($message);
+        $salesPayload = null;
 
-            if ($record) {
-                $variety = [
-                    'id' => $record->id,
-                    'name' => $record->name,
-                    'score' => 50,
-                ];
-            }
+        if (filled($salesSection)) {
+            $salesPayload = array_merge(
+                $this->basePayload($salesSection, 'sales'),
+                $this->parseSales($this->normalizeLines($salesSection)),
+            );
         }
 
-        if (! $variety && DurianVariety::count() === 1) {
-            $record = DurianVariety::first(['id', 'name']);
-            $variety = [
-                'id' => $record->id,
-                'name' => $record->name,
-                'score' => 50,
+        if ($type === 'opname' && $salesPayload && ! empty($salesPayload['sales_items'])) {
+            $opnameSection = $this->opnameSection($message) ?? $message;
+            $opnamePayload = array_merge(
+                $this->basePayload($opnameSection, 'opname'),
+                $this->parseOpname($this->normalizeLines($opnameSection)),
+            );
+
+            $reports = [
+                [
+                    'report_type' => 'sales',
+                    'parsed_payload' => $salesPayload,
+                    'missing_fields' => $this->missingRequiredFields('sales', $salesPayload),
+                ],
+                [
+                    'report_type' => 'opname',
+                    'parsed_payload' => $opnamePayload,
+                    'missing_fields' => $this->missingRequiredFields('opname', $opnamePayload),
+                ],
+            ];
+
+            $missingFields = $this->missingRequiredFields('mixed', ['reports' => $reports]);
+            $confidence = $this->mixedConfidence($reports);
+
+            return [
+                'report_type' => 'mixed',
+                'parsed_payload' => [
+                    ...$this->basePayload($message, 'mixed'),
+                    'reports' => $reports,
+                    'missing_fields' => $missingFields,
+                ],
+                'confidence' => $confidence,
+                'status' => empty($missingFields) && $confidence >= 75
+                    ? 'pending_approval'
+                    : 'needs_review',
+                'error_notes' => empty($missingFields)
+                    ? null
+                    : 'Perlu dilengkapi: ' . implode(', ', $missingFields),
             ];
         }
-        $date = $this->extractDate($lineMessage);
 
-        $payload = [
-            'date' => $date->toDateString(),
-            'outlet_id' => $outlet['id'] ?? null,
-            'outlet_name' => $outlet['name'] ?? null,
-            'durian_variety_id' => $variety['id'] ?? null,
-            'durian_variety_name' => $variety['name'] ?? null,
-            'notes' => trim($message),
-        ];
+        if (! $type && $salesPayload && ! empty($salesPayload['sales_items'])) {
+            $type = 'sales';
+        }
+
+        $payload = $this->basePayload($message, $type);
 
         $payload = match ($type) {
+            'sales' => array_merge($payload, $this->parseSales($lineMessage)),
             'retur' => array_merge($payload, $this->parseRetur($normalized, $lineMessage)),
             'rijek' => array_merge($payload, $this->parseRijek($normalized, $lineMessage)),
             'kupas' => array_merge($payload, $this->parseKupas($normalized, $lineMessage)),
@@ -81,6 +100,49 @@ class WhatsappReportParser
             'error_notes' => empty($missingFields)
                 ? null
                 : 'Perlu dilengkapi: ' . implode(', ', $missingFields),
+        ];
+    }
+
+    private function basePayload(string $message, ?string $type): array
+    {
+        $normalized = $this->normalize($message);
+        $lineMessage = $this->normalizeLines($message);
+        $outletText = $this->fieldValue(['nama otlet', 'nama outlet', 'otlet', 'outlet'], $lineMessage);
+        $varietyText = $this->fieldValue(['varian', 'jenis durian', 'durian'], $lineMessage);
+        $outlet = $this->matchModel($outletText ?: $normalized, Outlet::all(['id', 'name', 'aliases']), $outletText ? 60 : 25);
+        $variety = $this->matchModel($varietyText ?: $normalized, DurianVariety::all(['id', 'name']), $varietyText ? 60 : 25);
+
+        if ($type === 'rijek' && blank($varietyText)) {
+            $record = DurianVariety::query()
+                ->where('name', 'like', '%MONTHONG%')
+                ->orWhere('name', 'like', '%MONTONG%')
+                ->first(['id', 'name']);
+
+            if ($record) {
+                $variety = [
+                    'id' => $record->id,
+                    'name' => $record->name,
+                    'score' => 50,
+                ];
+            }
+        }
+
+        if (! $variety && $type !== 'sales' && DurianVariety::count() === 1) {
+            $record = DurianVariety::first(['id', 'name']);
+            $variety = [
+                'id' => $record->id,
+                'name' => $record->name,
+                'score' => 50,
+            ];
+        }
+
+        return [
+            'date' => $this->extractDate($lineMessage)->toDateString(),
+            'outlet_id' => $outlet['id'] ?? null,
+            'outlet_name' => $outlet['name'] ?? null,
+            'durian_variety_id' => $variety['id'] ?? null,
+            'durian_variety_name' => $variety['name'] ?? null,
+            'notes' => trim($message),
         ];
     }
 
@@ -218,17 +280,72 @@ class WhatsappReportParser
         ];
     }
 
+    private function parseSales(string $lineMessage): array
+    {
+        $items = [];
+
+        foreach (preg_split('/\R/u', $lineMessage) ?: [] as $line) {
+            $line = trim($line);
+
+            if (! preg_match('/^(.+?)\s*[:=]\s*(.+)$/u', $line, $matches)) {
+                continue;
+            }
+
+            $label = trim($matches[1]);
+            $value = trim($matches[2]);
+
+            if ($this->isNonProductSalesLabel($label)) {
+                continue;
+            }
+
+            $quantityAndPrice = $this->salesQuantityAndPrice($value);
+
+            if (! $quantityAndPrice || $quantityAndPrice['quantity'] <= 0) {
+                continue;
+            }
+
+            $inventoryItem = $this->matchInventoryItem($label);
+            $unitPrice = $quantityAndPrice['unit_price'];
+
+            $items[] = [
+                'inventory_item_id' => $inventoryItem['id'] ?? null,
+                'inventory_item_name' => $inventoryItem['name'] ?? str($label)->title()->toString(),
+                'raw_product_name' => $label,
+                'quantity' => $quantityAndPrice['quantity'],
+                'unit' => $inventoryItem['unit'] ?? 'unit',
+                'unit_price' => $unitPrice,
+                'gross_sales' => $unitPrice > 0 ? $quantityAndPrice['quantity'] * $unitPrice : 0,
+            ];
+        }
+
+        return [
+            'sales_items' => $items,
+        ];
+    }
+
     private function parseOpname(string $lineMessage): array
     {
-        $durianItems = $this->durianOpnameItemsFromText(
-            $this->messageWithoutAdditionalDurianBlocks($lineMessage),
-        );
+        $durianItems = [];
+        $jenisDurianBlocks = $this->jenisDurianOpnameBlocks($lineMessage);
 
-        foreach ($this->additionalDurianOpnameBlocks($lineMessage) as $block) {
-            $durianItems = array_merge(
-                $durianItems,
-                $this->durianOpnameItemsFromText($block['text'], $block['variety']),
+        if ($jenisDurianBlocks !== []) {
+            foreach ($jenisDurianBlocks as $block) {
+                $durianItems = array_merge(
+                    $durianItems,
+                    $this->durianOpnameItemsFromText($block['text'], $block['variety']),
+                );
+            }
+        } else {
+            $durianItems = $this->durianOpnameItemsFromText(
+                $this->messageWithoutAdditionalDurianBlocks($lineMessage),
             );
+
+            foreach ($this->additionalDurianOpnameBlocks($lineMessage) as $block) {
+                $durianItems = array_merge(
+                    $durianItems,
+                    $this->durianOpnameItemsFromText($block['text'], $block['variety']),
+                );
+            }
         }
 
         $inventoryItems = [];
@@ -242,6 +359,9 @@ class WhatsappReportParser
             'sarung tangan plastik' => 'Sarung Tangan Plastik',
             'tissue' => 'tissue',
             'tisu' => 'tissue',
+            'handglove' => 'Sarung Tangan Plastik',
+            'hand glove' => 'Sarung Tangan Plastik',
+            'glove' => 'Sarung Tangan Plastik',
             'karet' => 'karet',
             'sticker batang' => 'Stiker Batang',
             'sticker durpas' => 'Stiker Durpas',
@@ -351,6 +471,105 @@ class WhatsappReportParser
             ->all();
     }
 
+    /**
+     * @return array<int, array{variety: array{id: int, name: string, score: int}|null, text: string}>
+     */
+    private function jenisDurianOpnameBlocks(string $message): array
+    {
+        if (! preg_match_all('/^jenis durian\s*[:=\-]?\s*([^\n]+)\n(.*?)(?=^jenis durian\s*[:=\-]|^thinwall\b|^stiker\b|^sticker\b|^handglove\b|^hand glove\b|^glove\b|^tisu\b|^tissue\b|^sendok tester\b|^tusuk gigi\b|\z)/msu', $message, $matches, PREG_SET_ORDER)) {
+            return [];
+        }
+
+        $varieties = DurianVariety::all(['id', 'name']);
+
+        return collect($matches)
+            ->map(function (array $match) use ($varieties): array {
+                $varietyText = $this->normalize($match[1]);
+
+                if (Str::contains($varietyText, ['blacktron', 'black thron', 'blackthorn'])) {
+                    $varietyText = 'blackthorn';
+                }
+
+                return [
+                    'variety' => $this->matchModel($varietyText, $varieties, 20),
+                    'text' => trim($match[2]),
+                ];
+            })
+            ->filter(fn (array $block): bool => $block['text'] !== '')
+            ->values()
+            ->all();
+    }
+
+    private function salesSection(string $message): ?string
+    {
+        $parts = preg_split('/^\s*(?:stok|stock)\s+opname\b/imu', $message, 2);
+
+        if (! $parts || trim($parts[0] ?? '') === '') {
+            return null;
+        }
+
+        return trim($parts[0]);
+    }
+
+    private function opnameSection(string $message): ?string
+    {
+        if (preg_match('/^\s*(?:stok|stock)\s+opname\b.*\z/imsu', $message, $matches)) {
+            return trim($matches[0]);
+        }
+
+        return null;
+    }
+
+    private function isNonProductSalesLabel(string $label): bool
+    {
+        $label = $this->normalizeLookup($label);
+
+        return $label === ''
+            || str_contains($label, 'tanggal')
+            || str_contains($label, 'tgl')
+            || str_contains($label, 'namaoutlet')
+            || $label === 'outlet'
+            || $label === 'otlet'
+            || str_contains($label, 'jenisdurian')
+            || str_contains($label, 'varian')
+            || str_contains($label, 'buahutuh')
+            || str_contains($label, 'kupasfresh')
+            || str_contains($label, 'durpasfrozen')
+            || str_contains($label, 'thinwall')
+            || str_contains($label, 'stiker')
+            || str_contains($label, 'handglove')
+            || str_contains($label, 'tisu')
+            || str_contains($label, 'tissue')
+            || str_contains($label, 'sendoktester')
+            || str_contains($label, 'tusukgigi');
+    }
+
+    /**
+     * @return array{quantity: float, unit_price: float}|null
+     */
+    private function salesQuantityAndPrice(string $value): ?array
+    {
+        if (preg_match('/^\s*[-–—]\s*$/u', $value)) {
+            return null;
+        }
+
+        if (! preg_match('/(\d+(?:[\.,]\s*\d+)?)/u', $value, $matches)) {
+            return null;
+        }
+
+        $quantity = $this->normalizeNumber($matches[1]);
+        $unitPrice = 0.0;
+
+        if (preg_match('/(?:x|@|harga|rp)\s*([\d\.,]+)/iu', $value, $priceMatches)) {
+            $unitPrice = (float) $this->normalizeMoneyLikeNumber($priceMatches[1]);
+        }
+
+        return [
+            'quantity' => $quantity,
+            'unit_price' => $unitPrice,
+        ];
+    }
+
     private function detectType(string $message): ?string
     {
         if (
@@ -409,6 +628,7 @@ class WhatsappReportParser
         $best = null;
         $bestScore = 0;
         $messageWords = preg_split('/\s+/', $message) ?: [];
+        $messageCompact = $this->normalizeLookup($message);
 
         foreach ($records as $record) {
             $name = $this->normalize($record->name);
@@ -418,6 +638,21 @@ class WhatsappReportParser
             foreach ($searchTerms as $term) {
                 if ($term !== '' && str_contains($message, $term)) {
                     $score = max($score, $term === $name ? 100 : 95);
+                }
+
+                $termCompact = $this->normalizeLookup($term);
+
+                if ($termCompact !== '' && $messageCompact !== '') {
+                    if ($messageCompact === $termCompact || str_contains($messageCompact, $termCompact) || str_contains($termCompact, $messageCompact)) {
+                        $score = max($score, $term === $name ? 100 : 95);
+                    } else {
+                        similar_text($messageCompact, $termCompact, $percent);
+                        $distance = levenshtein($messageCompact, $termCompact);
+
+                        if ($percent >= 85 || $distance <= max(2, (int) floor(strlen($termCompact) / 6))) {
+                            $score = max($score, 80);
+                        }
+                    }
                 }
             }
 
@@ -477,6 +712,15 @@ class WhatsappReportParser
 
     private function confidence(?string $type, ?array $outlet, ?array $variety, array $payload, array $missingFields): int
     {
+        if ($type === 'sales') {
+            $score = 0;
+            $score += $outlet ? 30 : 0;
+            $score += ! empty($payload['sales_items'] ?? []) ? 45 : 0;
+            $score += max(0, 25 - (count($missingFields) * 10));
+
+            return min(100, $score);
+        }
+
         $score = 0;
         $score += $type ? 25 : 0;
         $score += $outlet ? 20 : 0;
@@ -486,9 +730,33 @@ class WhatsappReportParser
         return min(100, $score);
     }
 
+    private function mixedConfidence(array $reports): int
+    {
+        if ($reports === []) {
+            return 0;
+        }
+
+        $scores = collect($reports)
+            ->map(function (array $report): int {
+                $payload = $report['parsed_payload'] ?? [];
+
+                return $this->confidence(
+                    $report['report_type'] ?? null,
+                    filled($payload['outlet_id'] ?? null) ? ['id' => $payload['outlet_id']] : null,
+                    filled($payload['durian_variety_id'] ?? null) ? ['id' => $payload['durian_variety_id']] : null,
+                    $payload,
+                    $report['missing_fields'] ?? [],
+                );
+            });
+
+        return (int) round($scores->avg());
+    }
+
     private function missingRequiredFields(?string $type, array $payload): array
     {
         $required = match ($type) {
+            'mixed' => ['reports'],
+            'sales' => ['outlet_id', 'date', 'sales_items'],
             'retur' => ['outlet_id', 'qty_kg'],
             'rijek' => ['outlet_id', 'durian_variety_id', 'qty_kg', 'qty_buah_kg'],
             'kupas' => ['outlet_id', 'durian_variety_id', 'qty_buah_kg', 'qty_kupas_kg'],
@@ -499,6 +767,27 @@ class WhatsappReportParser
         };
 
         $missing = array_values(array_filter($required, fn ($field) => blank($payload[$field] ?? null)));
+
+        if ($type === 'mixed') {
+            foreach ($payload['reports'] ?? [] as $report) {
+                foreach ($report['missing_fields'] ?? [] as $field) {
+                    $missing[] = ($report['report_type'] ?? 'report') . '.' . $field;
+                }
+            }
+        }
+
+        if ($type === 'sales' && ! empty($payload['sales_items'] ?? [])) {
+            $unknownProducts = collect($payload['sales_items'])
+                ->filter(fn (array $item): bool => blank($item['inventory_item_id'] ?? null))
+                ->pluck('raw_product_name')
+                ->filter()
+                ->values()
+                ->all();
+
+            if ($unknownProducts !== []) {
+                $missing[] = 'master_produk: ' . implode(', ', $unknownProducts);
+            }
+        }
 
         if ($type === 'opname') {
             $hasDurianItems = ! empty($payload['opname_items'] ?? []);
@@ -595,7 +884,18 @@ class WhatsappReportParser
 
     private function matchInventoryItem(string $name): ?array
     {
-        return $this->matchModel($this->normalize($name), InventoryItem::all(['id', 'name']), 45);
+        $matched = $this->matchModel($this->normalize($name), InventoryItem::all(['id', 'name', 'unit']), 45);
+
+        if (! $matched) {
+            return null;
+        }
+
+        $record = InventoryItem::find($matched['id'], ['id', 'name', 'unit']);
+
+        return [
+            ...$matched,
+            'unit' => $record?->unit,
+        ];
     }
 
     private function quantityFromInventoryValue(string $value): ?float
@@ -812,6 +1112,32 @@ class WhatsappReportParser
         return (float) $value;
     }
 
+    private function normalizeMoneyLikeNumber(string $value): float
+    {
+        $value = preg_replace('/[^0-9,\.\-]/', '', strtolower(trim($value))) ?: '';
+
+        if ($value === '' || $value === '-') {
+            return 0;
+        }
+
+        $lastComma = strrpos($value, ',');
+        $lastDot = strrpos($value, '.');
+
+        if ($lastComma !== false && $lastDot !== false) {
+            $value = $lastComma > $lastDot
+                ? str_replace('.', '', str_replace(',', '.', $value))
+                : str_replace(',', '', $value);
+        } elseif (substr_count($value, '.') > 1) {
+            $value = str_replace('.', '', $value);
+        } elseif ($lastComma !== false) {
+            $value = str_replace(',', '.', $value);
+        } elseif (preg_match('/^\d{1,3}\.\d{3}$/', $value)) {
+            $value = str_replace('.', '', $value);
+        }
+
+        return is_numeric($value) ? (float) $value : 0;
+    }
+
     private function normalizeGramLikeNumber(string $value): float
     {
         $value = preg_replace('/(?<=\d)[\.,]\s+(?=\d)/', '.', $value) ?? $value;
@@ -834,6 +1160,11 @@ class WhatsappReportParser
             ->trim();
 
         return (string) $value;
+    }
+
+    private function normalizeLookup(mixed $value): string
+    {
+        return preg_replace('/[^a-z0-9]+/', '', strtolower(Str::ascii((string) $value))) ?: '';
     }
 
     private function normalizeLines(string $value): string
