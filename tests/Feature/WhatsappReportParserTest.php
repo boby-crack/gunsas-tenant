@@ -129,6 +129,49 @@ class WhatsappReportParserTest extends TestCase
         $this->assertSame(0, $payload['qty_olahan_kg']);
     }
 
+    public function test_product_and_variety_names_are_matched_flexibly(): void
+    {
+        $this->seedMasterDataForWhatsappSample();
+
+        $parsed = app(WhatsappReportParser::class)->parse(<<<'TEXT'
+Data Durpas
+Outlet : Bogor
+Tgl dibuka : 26 Agustus
+Varian : montong
+Berat buah : 5.122
+Berat kupas fresh : 1.590
+Jumlah pack : 4
+TEXT);
+
+        $this->assertSame('MONTHONG', $parsed['parsed_payload']['durian_variety_name']);
+
+        $parser = app(WhatsappReportParser::class);
+        $normalize = new \ReflectionMethod($parser, 'normalizeLines');
+        $parseSales = new \ReflectionMethod($parser, 'parseSales');
+        $normalize->setAccessible(true);
+        $parseSales->setAccessible(true);
+
+        $lineMessage = $normalize->invoke($parser, <<<'TEXT'
+mochi 6 duren : 2
+mochi 2 coklat : 3
+eskrim kecil : 4
+eggtart isi 2 chesee : 5
+durian brulle : 6
+TEXT);
+
+        $payload = $parseSales->invoke($parser, $lineMessage);
+        $names = collect($payload['sales_items'])->pluck('inventory_item_name')->all();
+
+        $this->assertSame([
+            'Mochi 6 Durian',
+            'Mochi 2 Coklat',
+            'Es Krim Kecil',
+            'Eggtart isi 2 Cheese',
+            'Durian Brulee',
+        ], $names);
+    }
+
+
 
     private function seedMasterDataForWhatsappSample(): void
     {

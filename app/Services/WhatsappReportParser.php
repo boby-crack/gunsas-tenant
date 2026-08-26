@@ -1285,7 +1285,57 @@ class WhatsappReportParser
 
     private function normalizeLookup(mixed $value): string
     {
-        return preg_replace('/[^a-z0-9]+/', '', strtolower(Str::ascii((string) $value))) ?: '';
+        $lookup = preg_replace('/[^a-z0-9]+/', '', strtolower(Str::ascii((string) $value))) ?: '';
+
+        return str_replace([
+            'creamchesee',
+            'creamchesse',
+            'creamkeju',
+            'krimcheese',
+            'krimchesee',
+            'krimkeju',
+            'icecream',
+            'escream',
+            'eskim',
+            'milecrape',
+            'millecrape',
+            'milecrepe',
+            'burnchesee',
+            'bruncheese',
+            'montong',
+            'duren',
+            'cokelat',
+            'chocolate',
+            'chesee',
+            'chesse',
+            'keju',
+            'brulle',
+            'brule',
+        ], [
+            'creamcheese',
+            'creamcheese',
+            'creamcheese',
+            'creamcheese',
+            'creamcheese',
+            'creamcheese',
+            'eskrim',
+            'eskrim',
+            'eskrim',
+            'millecrepe',
+            'millecrepe',
+            'millecrepe',
+            'brunchesee',
+            'brunchesee',
+            'monthong',
+            'durian',
+            'coklat',
+            'coklat',
+            'cheese',
+            'cheese',
+            'cheese',
+            'brulee',
+            'brulee',
+        ], $lookup);
     }
 
     private function normalizeLines(string $value): string
