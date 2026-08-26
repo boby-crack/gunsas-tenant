@@ -111,6 +111,25 @@ class WhatsappReportParserTest extends TestCase
         $this->assertSame(2.0, $inventoryByName['Sarung Tangan Plastik']['physical_qty']);
     }
 
+    public function test_data_durpas_template_is_parsed_as_kupas_production(): void
+    {
+        $this->seedMasterDataForWhatsappSample();
+
+        $parsed = app(WhatsappReportParser::class)->parse($this->sampleDataDurpasReport());
+        $payload = $parsed['parsed_payload'];
+
+        $this->assertSame('kupas', $parsed['report_type']);
+        $this->assertSame('pending_approval', $parsed['status'], $parsed['error_notes'] ?? '');
+        $this->assertSame('BOGOR', $payload['outlet_name']);
+        $this->assertSame('2026-08-26', $payload['date']);
+        $this->assertSame('MONTHONG', $payload['durian_variety_name']);
+        $this->assertSame(5.122, $payload['qty_buah_kg']);
+        $this->assertSame(1.590, $payload['qty_kupas_kg']);
+        $this->assertSame(4.0, $payload['qty_kupas_pack']);
+        $this->assertSame(0, $payload['qty_olahan_kg']);
+    }
+
+
     private function seedMasterDataForWhatsappSample(): void
     {
         Outlet::create([
@@ -128,6 +147,12 @@ class WhatsappReportParserTest extends TestCase
         Outlet::create([
             'name' => 'TIPTOP RAWAMANGUN',
             'aliases' => 'tiptop rawamangun',
+            'partner_share_percent' => 20,
+        ]);
+
+        Outlet::create([
+            'name' => 'BOGOR',
+            'aliases' => 'bogor',
             'partner_share_percent' => 20,
         ]);
 
@@ -282,6 +307,22 @@ Sendok tester : 1 pack
 Tusuk gigi : 1
 Sarung tangan plastik : 2 pack
 Soakerpad : 75pcs
+TEXT;
+    }
+
+    private function sampleDataDurpasReport(): string
+    {
+        return <<<'TEXT'
+Data Durpas
+Outlet : Bogor 
+Tgl dibuka :26 Agustus 
+Tgl kedatangan 19 Agustus 
+Varian : monthong 
+Berat buah : 5.122
+Berat kupas fresh : 1.590
+Jumlah pack : 4
+Berat Olahan  :  
+Ket. :sudah meletak.
 TEXT;
     }
 }

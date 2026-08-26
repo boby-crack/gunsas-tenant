@@ -98,7 +98,12 @@ class WhatsappReportParser
         }
 
         return [
-            'date' => $this->extractDate($lineMessage)->toDateString(),
+            'date' => $this->extractDate(
+                $lineMessage,
+                in_array($type, ['kupas', 'rijek'], true)
+                    ? ['tgl dibuka', 'tanggal dibuka', 'tanggal', 'tgl', 'tgl kedatangan', 'tanggal kedatangan']
+                    : null,
+            )->toDateString(),
             'outlet_id' => $outlet['id'] ?? null,
             'outlet_name' => $outlet['name'] ?? null,
             'durian_variety_id' => $variety['id'] ?? null,
@@ -180,9 +185,14 @@ class WhatsappReportParser
         $buahKg = $this->numberFromField(['berat buah'], $lineMessage)
             ?? $this->numberAfter(['buah kg', 'buah', 'bahan', 'utuh'], $message)
             ?? $this->firstKg($message);
-        $freshKg = $this->numberFromField(['jumlah pack', 'hasil pack', 'hasil kupas'], $lineMessage)
-            ?? $this->numberAfter(['fresh', 'kupas', 'daging'], $message);
-        $olahanKg = $this->numberAfter(['olahan', 'reject', 'rusak'], $message) ?? 0;
+        $freshKg = $this->gramLikeNumberFromField(['berat kupas fresh', 'kupas fresh kg', 'fresh kg', 'hasil kupas kg', 'hasil kupas'], $lineMessage)
+            ?? $this->gramLikeNumberAfter(['berat kupas fresh', 'kupas fresh', 'fresh', 'daging'], $message);
+        $freshPack = $this->numberFromField(['jumlah pack', 'pack fresh', 'fresh pack', 'kupas fresh pack'], $lineMessage, false)
+            ?? $this->packCount($message)
+            ?? 0;
+        $olahanKg = $this->gramLikeNumberFromField(['berat olahan', 'olahan kg', 'reject kg'], $lineMessage)
+            ?? $this->gramLikeNumberAfter(['berat olahan', 'olahan', 'reject', 'rusak'], $message)
+            ?? 0;
         $totalMeat = ($freshKg ?? 0) + $olahanKg;
 
         return [
@@ -190,7 +200,7 @@ class WhatsappReportParser
             'qty_buah_kg' => $buahKg,
             'qty_buah_butir' => $this->numberAfter(['butir', 'btr'], $message, false) ?? 0,
             'qty_kupas_kg' => $freshKg,
-            'qty_kupas_pack' => $this->packCount($message) ?? 0,
+            'qty_kupas_pack' => $freshPack,
             'qty_olahan_kg' => $olahanKg,
             'qty_olahan_pack' => 0,
             'total_usable_meat_kg' => $totalMeat,
@@ -622,6 +632,17 @@ class WhatsappReportParser
         }
 
         if (
+            Str::contains($message, ['data durpas', 'data kupas'])
+            || (
+                Str::contains($message, ['berat buah'])
+                && Str::contains($message, ['berat kupas fresh', 'kupas fresh'])
+                && Str::contains($message, ['jumlah pack', 'pack'])
+            )
+        ) {
+            return 'kupas';
+        }
+
+        if (
             Str::contains($message, ['dari retur', 'dari return', 'buah retur', 'buah return', 'no retur', 'no return'])
             && Str::contains($message, ['kupas', 'fresh', 'daging', 'produksi'])
         ) {
@@ -846,7 +867,7 @@ class WhatsappReportParser
         return array_values(array_unique($missing));
     }
 
-    private function extractDate(string $message): Carbon
+    private function extractDate(string $message, ?array $fieldLabels = null): Carbon
     {
         $months = [
             'januari' => 1,
@@ -863,13 +884,28 @@ class WhatsappReportParser
             'desember' => 12,
         ];
 
-        $dateField = $this->fieldValue(['tgl kedatangan', 'tanggal kedatangan', 'tanggal', 'tgl'], $message);
+        $dateField = $this->fieldValue($fieldLabels ?? ['tgl kedatangan', 'tanggal kedatangan', 'tanggal', 'tgl'], $message);
 
-        if ($dateField && preg_match('/^(\d{1,2})$/', $dateField, $matches)) {
+        if ($dateField) {
+            if ($date = $this->dateFromText($dateField, $months)) {
+                return $date;
+            }
+        }
+
+        if ($date = $this->dateFromText($message, $months)) {
+            return $date;
+        }
+
+        return now();
+    }
+
+    private function dateFromText(string $text, array $months): ?Carbon
+    {
+        if (preg_match('/^(\d{1,2})$/', trim($text), $matches)) {
             return Carbon::createFromDate(now()->year, now()->month, (int) $matches[1]);
         }
 
-        if (preg_match('/(\d{1,2})\s+(' . implode('|', array_keys($months)) . ')(?:\s+(\d{4}))?/u', $message, $matches)) {
+        if (preg_match('/(\d{1,2})\s+(' . implode('|', array_keys($months)) . ')(?:\s+(\d{4}))?/u', $text, $matches)) {
             return Carbon::createFromDate(
                 (int) ($matches[3] ?? now()->year),
                 $months[$matches[2]],
@@ -877,7 +913,7 @@ class WhatsappReportParser
             );
         }
 
-        if (preg_match('/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/', $message, $matches)) {
+        if (preg_match('/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/', $text, $matches)) {
             $year = isset($matches[3])
                 ? (strlen($matches[3]) === 2 ? '20' . $matches[3] : $matches[3])
                 : now()->year;
@@ -885,7 +921,7 @@ class WhatsappReportParser
             return Carbon::createFromDate((int) $year, (int) $matches[2], (int) $matches[1]);
         }
 
-        return now();
+        return null;
     }
 
     private function numberAfter(array $labels, string $message, bool $allowDecimal = true): ?float
