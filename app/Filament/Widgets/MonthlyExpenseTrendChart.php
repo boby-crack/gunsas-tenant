@@ -64,30 +64,56 @@ class MonthlyExpenseTrendChart extends ChartWidget
     protected function getOptions(): RawJs
     {
         return RawJs::make(<<<'JS'
-            {
+            (() => {
+                const mobile = window.matchMedia('(max-width: 640px)').matches;
+                const compact = (value) => new Intl.NumberFormat('id-ID', {
+                    notation: 'compact',
+                    compactDisplay: 'short',
+                    maximumFractionDigits: mobile ? 0 : 1,
+                }).format(value);
+
+                return {
+                aspectRatio: mobile ? 1.35 : 2,
                 interaction: {
                     mode: 'index',
                     intersect: false,
                 },
+                layout: {
+                    padding: mobile ? { left: 0, right: 0 } : {},
+                },
                 scales: {
+                    ...(mobile ? { x: {
+                        grid: {
+                            display: false,
+                        },
+                        ticks: {
+                            autoSkip: true,
+                            maxRotation: 0,
+                            minRotation: 0,
+                            maxTicksLimit: mobile ? 4 : 8,
+                            callback: function (value) {
+                                const label = this.getLabelForValue(value);
+
+                                return mobile ? label.replace(/\s20\d{2}/, '') : label;
+                            },
+                        },
+                    } } : {}),
                     y: {
                         beginAtZero: true,
                         title: {
-                            display: true,
+                            display: ! mobile,
                             text: 'Expense',
                         },
                         ticks: {
-                            callback: (value) => {
-                                return 'Rp ' + new Intl.NumberFormat('id-ID', {
-                                    notation: 'compact',
-                                    compactDisplay: 'short',
-                                    maximumFractionDigits: 1,
-                                }).format(value);
-                            },
+                            ...(mobile ? { maxTicksLimit: 4 } : {}),
+                            callback: (value) => 'Rp ' + compact(value),
                         },
                     },
                 },
                 plugins: {
+                    legend: {
+                        display: ! mobile,
+                    },
                     tooltip: {
                         callbacks: {
                             label: (context) => {
@@ -96,7 +122,8 @@ class MonthlyExpenseTrendChart extends ChartWidget
                         },
                     },
                 },
-            }
+            };
+            })()
         JS);
     }
 

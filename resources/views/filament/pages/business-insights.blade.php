@@ -50,12 +50,12 @@
         <form wire:submit.prevent="applyFilters" class="space-y-3">
             {{ $this->form }}
 
-            <div class="flex justify-end">
+            <div class="gunsas-action-row">
                 <button
                     type="submit"
                     wire:loading.attr="disabled"
                     wire:target="applyFilters"
-                    class="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-70"
+                    class="gunsas-action-button rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-70"
                 >
                     <span wire:loading.remove wire:target="applyFilters">Terapkan Filter</span>
                     <span wire:loading wire:target="applyFilters">Menerapkan...</span>
@@ -126,7 +126,7 @@
                         </div>
                     </div>
 
-                    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem;">
+                    <div class="grid gap-3 md:grid-cols-3">
                         <div class="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                             <p class="text-xs font-medium text-gray-500">1. Omset kasir</p>
                             <p class="mt-1 text-2xl font-semibold text-gray-950 dark:text-white">{{ $money($insights['sales']['gross_sales']) }}</p>
@@ -201,7 +201,7 @@
                         <p class="text-xs text-gray-500">Bagian ini dipakai untuk menjelaskan kenapa profit naik atau turun.</p>
                     </div>
 
-                    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem;">
+                    <div class="grid gap-3 md:grid-cols-3">
                         <div class="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                             <p class="text-xs text-gray-500">Total pengurang profit</p>
                             <p class="mt-1 text-2xl font-semibold text-gray-950 dark:text-white">{{ $money($totalProfitCosts) }}</p>
@@ -326,7 +326,7 @@
             </div>
 
             <div x-show="tab === 'purchase'" class="space-y-4">
-        <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));">
+        <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));">
             <div class="rounded-lg border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                 <div class="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
                     <div>
@@ -384,7 +384,7 @@
             </div>
 
             <div x-show="tab === 'biaya'" class="space-y-4">
-        <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));">
+        <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));">
             <div class="rounded-lg border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                 <h3 class="text-sm font-semibold">Inventory Valuation</h3>
                 <dl class="mt-3 space-y-2 text-xs">
@@ -618,7 +618,7 @@
             </div>
         </div>
 
-        <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));">
+        <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));">
             <div class="rounded-lg border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                 <h3 class="text-sm font-semibold">Detail Loss Opname</h3>
                 <div class="mt-3 space-y-2 text-xs">
@@ -744,8 +744,7 @@
                 <p class="mt-1 text-xs text-gray-500">Data teknis kiriman, penjualan, proses, retur, dan opname. Dipakai untuk audit stok kalau angka ringkasan perlu dicek ulang.</p>
             </div>
 
-            <div class="mt-3 overflow-x-auto">
-                <div class="grid min-w-[800px] gap-2 text-xs" style="grid-template-columns: repeat(5, minmax(0, 1fr));">
+            <div class="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-5">
                 <div class="rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800">
                     <p class="text-gray-500">Stok Awal</p>
                     <p class="font-semibold">{{ $kg($insights['stock_movement']['summary']['start_kg'] ?? 0) }}</p>
@@ -771,7 +770,6 @@
                     <p class="font-semibold {{ $stockHasOpname ? (($stockVariance ?? 0) < 0 ? 'text-danger-600' : 'text-success-600') : 'text-gray-500' }}">
                         {{ $stockHasOpname ? $kg($stockVariance ?? 0) : '-' }}
                     </p>
-                </div>
                 </div>
             </div>
 

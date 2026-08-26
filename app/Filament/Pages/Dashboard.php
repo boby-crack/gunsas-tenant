@@ -45,6 +45,9 @@ class Dashboard extends BaseDashboard
             \App\Filament\Widgets\MonthlyFinancialTrendChart::class,
             \App\Filament\Widgets\MonthlyExpenseTrendChart::class,
             \App\Filament\Widgets\MonthlyPurchaseTrendChart::class,
+            \App\Filament\Widgets\MonthlyProductionShrinkageChart::class,
+            \App\Filament\Widgets\MonthlyProcessedProductionChart::class,
+            \App\Filament\Widgets\MonthlyReturnClaimChart::class,
         ];
     }
 
@@ -61,6 +64,9 @@ class Dashboard extends BaseDashboard
             \App\Filament\Widgets\MonthlyFinancialTrendChart::class,
             \App\Filament\Widgets\MonthlyExpenseTrendChart::class,
             \App\Filament\Widgets\MonthlyPurchaseTrendChart::class,
+            \App\Filament\Widgets\MonthlyProductionShrinkageChart::class,
+            \App\Filament\Widgets\MonthlyProcessedProductionChart::class,
+            \App\Filament\Widgets\MonthlyReturnClaimChart::class,
         ];
     }
 

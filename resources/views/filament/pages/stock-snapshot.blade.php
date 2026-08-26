@@ -13,13 +13,13 @@
         <form wire:submit.prevent="applyFilters" class="space-y-3">
             {{ $this->form }}
 
-            <div class="flex flex-wrap justify-end gap-2">
+            <div class="gunsas-action-row">
                 <button
                     type="button"
                     wire:click="export"
                     wire:loading.attr="disabled"
                     wire:target="export"
-                    class="inline-flex items-center rounded-lg bg-success-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-success-500 disabled:opacity-70"
+                    class="gunsas-action-button rounded-lg bg-success-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-success-500 disabled:opacity-70"
                 >
                     <span wire:loading.remove wire:target="export">Download Excel</span>
                     <span wire:loading wire:target="export">Menyiapkan...</span>
@@ -29,7 +29,7 @@
                     type="submit"
                     wire:loading.attr="disabled"
                     wire:target="applyFilters"
-                    class="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-70"
+                    class="gunsas-action-button rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-70"
                 >
                     <span wire:loading.remove wire:target="applyFilters">Terapkan Filter</span>
                     <span wire:loading wire:target="applyFilters">Menerapkan...</span>
@@ -46,8 +46,7 @@
                 </div>
             </div>
 
-            <div class="mt-4 overflow-x-auto">
-                <div class="grid min-w-[1050px] gap-2 text-sm" style="grid-template-columns: repeat(7, minmax(0, 1fr));">
+            <div class="mt-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
                 <div class="rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800">
                     <p class="text-xs text-gray-500">Stok Awal</p>
                     <p class="font-semibold">{{ $qty($summary['start_qty'] ?? 0) }}</p>
@@ -75,7 +74,6 @@
                 <div class="rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800">
                     <p class="text-xs text-gray-500">Selisih Opname</p>
                     <p class="font-semibold {{ ($summary['variance_qty'] ?? 0) < 0 ? 'text-danger-600' : 'text-success-600' }}">{{ $qty($summary['variance_qty'] ?? 0) }}</p>
-                </div>
                 </div>
             </div>
         </div>

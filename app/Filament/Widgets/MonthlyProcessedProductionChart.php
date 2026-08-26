@@ -3,68 +3,50 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Outlet;
-use App\Models\Sale;
+use App\Models\Production;
 use Carbon\Carbon;
 use Filament\Support\RawJs;
 use Filament\Widgets\ChartWidget;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Illuminate\Database\Eloquent\Builder;
 
-class MonthlyFinancialTrendChart extends ChartWidget
+class MonthlyProcessedProductionChart extends ChartWidget
 {
     use InteractsWithPageFilters;
 
     public ?array $dashboardFilters = null;
 
-    protected static ?string $heading = 'Tren Mingguan Sales';
+    protected static ?string $heading = 'Produksi Olahan Bulanan';
 
     protected static ?string $pollingInterval = null;
 
     protected static bool $isLazy = false;
 
-    protected int | string | array $columnSpan = 'full';
+    protected int | string | array $columnSpan = [
+        'md' => 1,
+        'xl' => 1,
+    ];
 
     protected function getData(): array
     {
-        $filters = $this->dashboardFilters();
-        $dateUntil = Carbon::parse($filters['date_until'] ?? now())->endOfDay();
-        $minimumDateFrom = $dateUntil->copy()->subMonthNoOverflow()->startOfMonth()->startOfDay();
-        $dateFrom = Carbon::parse($filters['date_from'] ?? $minimumDateFrom)->startOfDay();
-        $outletFilter = $this->outletFilter();
-
-        if ($dateFrom->gt($dateUntil)) {
-            $dateFrom = $minimumDateFrom;
-        }
-
-        if ($dateFrom->gt($minimumDateFrom)) {
-            $dateFrom = $minimumDateFrom;
-        }
-
+        [$dateFrom, $dateUntil] = $this->monthlyRange();
+        $rows = $this->monthlyProcessedKg($dateFrom, $dateUntil);
         $labels = [];
-        $sales = [];
-        $salesByWeek = $this->netSalesByWeek($dateFrom, $dateUntil, $outletFilter);
+        $data = [];
 
-        for ($week = $dateFrom->copy()->startOfWeek(); $week->lte($dateUntil); $week->addWeek()) {
-            $weekStart = $week->copy()->max($dateFrom);
-            $weekEnd = $week->copy()->endOfWeek()->min($dateUntil);
-            $key = $week->format('o-W');
-
-            $labels[] = $weekStart->isSameDay($weekEnd)
-                ? $weekStart->translatedFormat('d M')
-                : $weekStart->translatedFormat('d M') . ' - ' . $weekEnd->translatedFormat('d M');
-            $sales[] = $salesByWeek[$key] ?? 0;
+        for ($month = $dateFrom->copy(); $month->lte($dateUntil); $month->addMonth()) {
+            $key = $month->format('Y-m');
+            $labels[] = $month->translatedFormat('M Y');
+            $data[] = $rows[$key] ?? 0;
         }
 
         return [
             'datasets' => [
                 [
-                    'label' => 'Sales Net',
-                    'data' => $sales,
-                    'type' => 'line',
-                    'yAxisID' => 'y',
-                    'borderColor' => '#f26a00',
-                    'backgroundColor' => 'rgba(242, 106, 0, 0.12)',
-                    'tension' => 0.35,
+                    'label' => 'Olahan',
+                    'data' => $data,
+                    'borderColor' => '#8b5cf6',
+                    'backgroundColor' => 'rgba(139, 92, 246, 0.22)',
                 ],
             ],
             'labels' => $labels,
@@ -76,10 +58,10 @@ class MonthlyFinancialTrendChart extends ChartWidget
         return RawJs::make(<<<'JS'
             (() => {
                 const mobile = window.matchMedia('(max-width: 640px)').matches;
-                const compact = (value) => new Intl.NumberFormat('id-ID', {
-                    notation: 'compact',
+                const number = (value, digits = 1) => new Intl.NumberFormat('id-ID', {
+                    notation: mobile ? 'compact' : 'standard',
                     compactDisplay: 'short',
-                    maximumFractionDigits: mobile ? 0 : 1,
+                    maximumFractionDigits: mobile ? 0 : digits,
                 }).format(value);
 
                 return {
@@ -104,7 +86,7 @@ class MonthlyFinancialTrendChart extends ChartWidget
                             callback: function (value) {
                                 const label = this.getLabelForValue(value);
 
-                                return mobile ? label.replace(/\s20\d{2}/, '').replace(' - ', '\n') : label;
+                                return mobile ? label.replace(/\s20\d{2}/, '') : label;
                             },
                         },
                     } } : {}),
@@ -112,11 +94,11 @@ class MonthlyFinancialTrendChart extends ChartWidget
                         beginAtZero: true,
                         title: {
                             display: ! mobile,
-                            text: 'Sales',
+                            text: 'KG Olahan',
                         },
                         ticks: {
                             ...(mobile ? { maxTicksLimit: 4 } : {}),
-                            callback: (value) => 'Rp ' + compact(value),
+                            callback: (value) => mobile ? number(value) : number(value, 2) + ' kg',
                         },
                     },
                 },
@@ -126,9 +108,9 @@ class MonthlyFinancialTrendChart extends ChartWidget
                     },
                     tooltip: {
                         callbacks: {
-                            label: (context) => {
-                                return context.dataset.label + ': Rp ' + new Intl.NumberFormat('id-ID').format(context.parsed.y || 0);
-                            },
+                            label: (context) => context.dataset.label + ': ' + new Intl.NumberFormat('id-ID', {
+                                maximumFractionDigits: 3,
+                            }).format(context.parsed.y || 0) + ' kg',
                         },
                     },
                 },
@@ -139,19 +121,36 @@ class MonthlyFinancialTrendChart extends ChartWidget
 
     protected function getType(): string
     {
-        return 'line';
+        return 'bar';
     }
 
-    private function netSalesByWeek(Carbon $dateFrom, Carbon $dateUntil, mixed $outletId): array
+    private function monthlyProcessedKg(Carbon $dateFrom, Carbon $dateUntil): array
     {
-        return $this->applyOutletFilter(Sale::query(), $outletId)
-            ->where('date', '>=', $dateFrom->toDateString())
-            ->where('date', '<=', $dateUntil->toDateString())
-            ->selectRaw("DATE_FORMAT(date, '%x-%v') as week_key, SUM(CASE WHEN net_sales > 0 THEN net_sales ELSE GREATEST(grand_total_revenue - discount_amount - COALESCE(sales_return_amount, 0), 0) END) as total")
-            ->groupBy('week_key')
-            ->pluck('total', 'week_key')
-            ->map(fn ($value) => (float) $value)
+        return $this->productionQuery($dateFrom, $dateUntil)
+            ->get(['date', 'qty_olahan_kg'])
+            ->groupBy(fn (Production $production): string => Carbon::parse($production->date)->format('Y-m'))
+            ->map(fn ($rows): float => round((float) $rows->sum('qty_olahan_kg'), 3))
             ->all();
+    }
+
+    private function productionQuery(Carbon $dateFrom, Carbon $dateUntil): Builder
+    {
+        return $this->applyOutletFilter(Production::query(), $this->outletFilter())
+            ->where('date', '>=', $dateFrom->toDateString())
+            ->where('date', '<=', $dateUntil->toDateString());
+    }
+
+    private function monthlyRange(): array
+    {
+        $filters = $this->dashboardFilters();
+        $dateFrom = Carbon::parse($filters['date_from'] ?? now()->subMonths(5)->startOfMonth())->startOfMonth();
+        $dateUntil = Carbon::parse($filters['date_until'] ?? now())->endOfMonth();
+
+        if ($dateFrom->diffInMonths($dateUntil) < 1) {
+            $dateFrom = $dateUntil->copy()->subMonths(5)->startOfMonth();
+        }
+
+        return [$dateFrom, $dateUntil];
     }
 
     private function outletFilter(): mixed
@@ -175,9 +174,7 @@ class MonthlyFinancialTrendChart extends ChartWidget
     private function applyOutletFilter(Builder $query, mixed $outletFilter): Builder
     {
         if (is_array($outletFilter)) {
-            return count($outletFilter) > 0
-                ? $query->whereIn('outlet_id', $outletFilter)
-                : $query->whereRaw('1 = 0');
+            return count($outletFilter) > 0 ? $query->whereIn('outlet_id', $outletFilter) : $query->whereRaw('1 = 0');
         }
 
         return $outletFilter ? $query->where('outlet_id', $outletFilter) : $query;

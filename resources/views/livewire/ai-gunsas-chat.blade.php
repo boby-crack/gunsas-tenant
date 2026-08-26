@@ -17,7 +17,7 @@
     x-on:ai-gunsas-question-sent.window="$nextTick(() => { scrollToBottom(); $wire.answerPending(); })"
     x-on:ai-gunsas-answer-received.window="$nextTick(() => scrollToBottom())"
     x-effect="if (open) { teaser = false; $nextTick(() => scrollToBottom()); }"
-    style="position: fixed; right: 0; bottom: 18px; z-index: 2147483647;"
+    style="position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 2147483647; display: flex; justify-content: flex-end; pointer-events: none;"
 >
     <style>
         [x-cloak] {
@@ -53,6 +53,39 @@
         .ai-gunsas-message strong {
             font-weight: 700;
         }
+
+        .ai-gunsas-tab {
+            align-items: center;
+            background: #f26a00;
+            border: 0;
+            border-radius: 9999px 0 0 9999px;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.28);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            height: 64px;
+            justify-content: center;
+            pointer-events: auto;
+            width: 28px;
+        }
+
+        .ai-gunsas-pill {
+            pointer-events: auto;
+        }
+
+        @media (max-width: 640px) {
+            .ai-gunsas-tab {
+                border-radius: 9999px;
+                height: 44px;
+                margin-right: 0;
+                width: 44px;
+            }
+
+            .ai-gunsas-pill {
+                margin-right: 0;
+                max-width: calc(100vw - 16px);
+            }
+        }
     </style>
 
     <div
@@ -64,8 +97,8 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100 translate-y-0 scale-100"
         x-transition:leave-end="opacity-0 translate-y-3 scale-95"
-        class="mb-3 flex h-[min(680px,calc(100vh-7rem))] w-[min(760px,calc(100vw-2.5rem))] origin-bottom-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900"
-        style="width: min(760px, calc(100vw - 40px)); height: min(680px, calc(100vh - 112px)); margin-bottom: 12px; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid rgba(148, 163, 184, .24); box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);"
+        class="mb-3 flex origin-bottom-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900"
+        style="width: min(760px, calc(100vw - 16px)); height: min(680px, calc(100dvh - 80px)); margin-bottom: 12px; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid rgba(148, 163, 184, .24); box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25); pointer-events: auto;"
     >
         <aside class="hidden w-56 shrink-0 flex-col border-r border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-950 sm:flex">
             <div class="border-b border-gray-200 p-3 dark:border-gray-800">
@@ -125,12 +158,12 @@
         </aside>
 
         <div class="flex min-w-0 flex-1 flex-col">
-            <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-800">
-                <div>
+            <div class="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-3 dark:border-gray-800 sm:px-4">
+                <div class="min-w-0">
                     <p class="text-sm font-semibold text-gray-950 dark:text-gray-950">AI Gunsas</p>
                     <p class="text-xs text-gray-500">Konsultan bisnis read-only</p>
                 </div>
-                <div class="flex items-center gap-1">
+                <div class="flex shrink-0 items-center gap-1">
                     <button
                         type="button"
                         wire:click="newChat"
@@ -156,12 +189,15 @@
                 </div>
             </div>
 
-            <div x-ref="messages" class="flex-1 space-y-3 overflow-y-auto p-4">
+            <div x-ref="messages" class="flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
                 @foreach ($messages as $message)
                     <div class="flex {{ $message['role'] === 'user' ? 'justify-end' : 'justify-start' }}">
-                        <div class="{{ $message['role'] === 'user' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100' }} ai-gunsas-message max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed">
+                        <div class="{{ $message['role'] === 'user' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100' }} ai-gunsas-message max-w-[92%] rounded-lg px-3 py-2 text-sm leading-relaxed sm:max-w-[85%]">
                             @if ($message['role'] === 'assistant')
-                                {!! \Illuminate\Support\Str::markdown($message['text']) !!}
+                                {!! \Illuminate\Support\Str::markdown($message['text'], [
+                                    'html_input' => 'strip',
+                                    'allow_unsafe_links' => false,
+                                ]) !!}
                             @else
                                 <span class="whitespace-pre-line">{{ $message['text'] }}</span>
                             @endif
@@ -177,7 +213,7 @@
             </div>
 
             <form x-ref="form" wire:submit.prevent="ask" class="border-t border-gray-200 p-3 dark:border-gray-800">
-                <div class="flex gap-2">
+                <div class="flex min-w-0 gap-2">
                     <textarea
                         wire:model="question"
                         x-on:keydown.enter.prevent="$refs.form.requestSubmit()"
@@ -185,7 +221,7 @@
                         wire:target="ask,answerPending"
                         rows="2"
                         placeholder="Tanya profit, margin, loss KG, retur..."
-                        class="min-h-11 flex-1 resize-none rounded-md border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900"
+                        class="min-h-11 min-w-0 flex-1 resize-none rounded-md border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900"
                     ></textarea>
                     <button
                         type="submit"
@@ -212,8 +248,7 @@
         x-transition:leave-start="opacity-100 translate-x-0"
         x-transition:leave-end="opacity-0 translate-x-2"
         x-on:click="teaser = true"
-        class="ml-auto flex items-center justify-center bg-primary-600 text-white shadow-lg transition hover:bg-primary-500"
-        style="display: flex; width: 28px; height: 64px; align-items: center; justify-content: center; border: 0; border-radius: 9999px 0 0 9999px; background: #f26a00; color: white; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.28); cursor: pointer;"
+        class="ai-gunsas-tab ml-auto transition hover:bg-primary-500"
         aria-label="Tampilkan AI Gunsas"
         title="AI Gunsas"
     >
@@ -231,7 +266,7 @@
         x-transition:leave-start="opacity-100 translate-x-0 scale-100"
         x-transition:leave-end="opacity-0 translate-x-4 scale-95"
         x-on:click="open = true; teaser = false; $wire.openChat()"
-        class="mr-3 flex items-center gap-2 rounded-full bg-white text-gray-950 shadow-xl ring-2 ring-white transition duration-200 hover:scale-[1.02] dark:bg-gray-900 dark:text-white dark:ring-gray-800"
+        class="ai-gunsas-pill mr-3 flex items-center gap-2 rounded-full bg-white text-gray-950 shadow-xl ring-2 ring-white transition duration-200 hover:scale-[1.02] dark:bg-gray-900 dark:text-white dark:ring-gray-800"
         style="display: flex; height: 58px; align-items: center; gap: 8px; border: 0; border-radius: 9999px; background: white; color: #111827; box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35); cursor: pointer; font-family: Arial, sans-serif; padding: 8px 14px 8px 8px;"
         aria-label="Buka AI Gunsas"
     >

@@ -56,10 +56,10 @@
             </label>
         </div>
 
-        <div class="mt-4 flex justify-end">
+        <div class="gunsas-action-row mt-4">
             <button
                 type="submit"
-                class="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-500"
+                class="gunsas-action-button rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-500"
             >
                 Terapkan Filter
             </button>
@@ -82,8 +82,8 @@
         :widgets="$this->getKpiWidgets()"
     />
 
-    <section class="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <div class="border-b border-gray-200 px-6 py-4 dark:border-gray-800">
+    <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div class="border-b border-gray-200 px-4 py-4 dark:border-gray-800 sm:px-6">
             <h2 class="text-base font-semibold text-gray-950 dark:text-white">Kesimpulan Target Sales per Outlet</h2>
         </div>
 
@@ -92,7 +92,44 @@
                 Tidak ada outlet pada filter ini.
             </div>
         @else
-            <div class="overflow-x-auto">
+            <div class="gunsas-mobile-cards p-3 sm:p-4">
+                @foreach ($targetRows as $row)
+                    @php
+                        $achievementColor = $row['achievement'] >= 100 ? 'bg-green-500/10 text-green-600 dark:text-green-400' : ($row['achievement'] >= 80 ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' : 'bg-red-500/10 text-red-600 dark:text-red-400');
+                    @endphp
+
+                    <article class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <h3 class="gunsas-break-anywhere text-sm font-semibold text-gray-950 dark:text-white">{{ $row['name'] }}</h3>
+                                <p class="mt-1 text-xs text-gray-500">{{ $row['status'] }}</p>
+                            </div>
+                            <span class="inline-flex shrink-0 rounded-md px-2 py-1 text-xs font-semibold {{ $achievementColor }}">
+                                {{ number_format($row['achievement'], 1, ',', '.') }}%
+                            </span>
+                        </div>
+
+                        <dl class="mt-3 grid grid-cols-2 gap-3 text-xs">
+                            <div>
+                                <dt class="text-gray-500">Target</dt>
+                                <dd class="mt-1 font-semibold text-gray-950 dark:text-white">{{ $this->formatCurrency($row['target']) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-gray-500">Realisasi</dt>
+                                <dd class="mt-1 font-semibold text-gray-950 dark:text-white">{{ $this->formatCurrency($row['actual']) }}</dd>
+                            </div>
+                            <div class="col-span-2">
+                                <dt class="text-gray-500">Sisa / Lebih</dt>
+                                <dd class="mt-1 font-semibold {{ $row['gap'] >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' }}">
+                                    {{ $this->formatCurrency($row['gap']) }}
+                                </dd>
+                            </div>
+                        </dl>
+                    </article>
+                @endforeach
+            </div>
+
+            <div class="gunsas-responsive-table gunsas-scroll-x">
                 <table class="w-full min-w-[760px] text-left text-sm">
                     <thead class="border-b border-gray-200 bg-gray-50 text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
                         <tr>

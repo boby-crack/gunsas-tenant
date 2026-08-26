@@ -86,7 +86,13 @@ class WhatsappReportParser
         };
 
         $missingFields = $this->missingRequiredFields($type, $payload);
-        $confidence = $this->confidence($type, $outlet, $variety, $payload, $missingFields);
+        $confidence = $this->confidence(
+            $type,
+            filled($payload['outlet_id'] ?? null) ? ['id' => $payload['outlet_id']] : null,
+            filled($payload['durian_variety_id'] ?? null) ? ['id' => $payload['durian_variety_id']] : null,
+            $payload,
+            $missingFields,
+        );
 
         $payload['missing_fields'] = $missingFields;
 

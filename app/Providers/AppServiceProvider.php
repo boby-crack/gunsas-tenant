@@ -46,6 +46,11 @@ class AppServiceProvider extends ServiceProvider
                 : '',
         );
 
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::HEAD_END,
+            fn (): string => view('filament.responsive-overrides')->render(),
+        );
+
         foreach ($this->auditedModels() as $model) {
             $model::observe(AuditObserver::class);
         }

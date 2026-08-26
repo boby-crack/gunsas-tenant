@@ -18,6 +18,13 @@ class WhatsappWebhookController extends Controller
         WhatsappReportApprover $approver
     ): JsonResponse
     {
+        if (! $this->hasValidWebhookSecret($request)) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'Webhook secret tidak valid.',
+            ], 403);
+        }
+
         $message = $this->firstFilled($request, [
             'caption',
             'description',
@@ -52,6 +59,13 @@ class WhatsappWebhookController extends Controller
             'data.memberid',
         ]);
         $isGroup = $request->boolean('isgroup');
+
+        if (! $this->isAllowedWebhookSender($sender, $member)) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'Pengirim webhook tidak diizinkan.',
+            ], 403);
+        }
 
         if (blank($message)) {
             return response()->json([
@@ -550,5 +564,67 @@ class WhatsappWebhookController extends Controller
             'non-text message',
             'non-button message',
         ], true);
+    }
+
+    private function hasValidWebhookSecret(Request $request): bool
+    {
+        $expectedSecret = trim((string) config('services.fonnte.webhook_secret'));
+
+        if ($expectedSecret === '') {
+            return true;
+        }
+
+        foreach ($this->webhookSecretCandidates($request) as $candidate) {
+            $candidate = trim((string) $candidate);
+
+            if ($candidate !== '' && hash_equals($expectedSecret, $candidate)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function webhookSecretCandidates(Request $request): array
+    {
+        $authorization = trim((string) $request->header('Authorization'));
+
+        if (str_starts_with(strtolower($authorization), 'bearer ')) {
+            $authorization = trim(substr($authorization, 7));
+        }
+
+        return array_filter([
+            $request->header('X-Webhook-Secret'),
+            $request->header('X-Fonnte-Webhook-Secret'),
+            $request->header('X-Fonnte-Secret'),
+            $request->header('X-Fonnte-Token'),
+            $authorization,
+            $request->input('webhook_secret'),
+            $request->input('secret'),
+            $request->input('token'),
+            $request->input('data.webhook_secret'),
+            $request->input('data.secret'),
+            $request->input('data.token'),
+        ], fn ($value): bool => filled($value) && is_scalar($value));
+    }
+
+    private function isAllowedWebhookSender(?string $sender, ?string $member): bool
+    {
+        $allowed = collect(explode(',', (string) config('services.fonnte.allowed_senders')))
+            ->map(fn (string $value): string => $this->normalizeSender($value))
+            ->filter()
+            ->values();
+
+        if ($allowed->isEmpty()) {
+            return true;
+        }
+
+        return $allowed->contains($this->normalizeSender($sender))
+            || $allowed->contains($this->normalizeSender($member));
+    }
+
+    private function normalizeSender(?string $value): string
+    {
+        return preg_replace('/[^a-z0-9]+/i', '', strtolower((string) $value)) ?: '';
     }
 }

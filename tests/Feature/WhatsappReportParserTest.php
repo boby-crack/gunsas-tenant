@@ -58,6 +58,32 @@ class WhatsappReportParserTest extends TestCase
         $this->assertSame(10, StockOpname::count());
     }
 
+    public function test_whatsapp_webhook_secret_blocks_invalid_requests(): void
+    {
+        config()->set('services.fonnte.webhook_secret', 'secret-123');
+
+        $this->postJson('/webhook/whatsapp', [
+            'sender' => '628123',
+            'message' => 'halo',
+        ])->assertForbidden();
+
+        $this->assertSame(0, WhatsappReport::count());
+    }
+
+    public function test_whatsapp_webhook_secret_allows_valid_requests(): void
+    {
+        config()->set('services.fonnte.webhook_secret', 'secret-123');
+
+        $this->postJson('/webhook/whatsapp', [
+            'sender' => '628123',
+            'message' => 'halo',
+        ], [
+            'X-Webhook-Secret' => 'secret-123',
+        ])->assertOk();
+
+        $this->assertSame(1, WhatsappReport::count());
+    }
+
     private function seedMasterDataForWhatsappSample(): void
     {
         Outlet::create([

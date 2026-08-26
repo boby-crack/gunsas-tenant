@@ -39,6 +39,8 @@ return [
         'token' => env('FONNTE_TOKEN'),
         'base_url' => env('FONNTE_BASE_URL', 'https://api.fonnte.com'),
         'auto_reply' => env('FONNTE_AUTO_REPLY', false),
+        'webhook_secret' => env('FONNTE_WEBHOOK_SECRET'),
+        'allowed_senders' => env('FONNTE_ALLOWED_SENDERS'),
     ],
 
     'ai' => [
