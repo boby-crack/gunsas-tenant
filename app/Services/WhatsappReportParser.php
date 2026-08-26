@@ -18,70 +18,25 @@ class WhatsappReportParser
         $lineMessage = $this->normalizeLines($message);
         $type = $this->detectType($normalized);
 
-        $salesSection = $this->salesSection($message);
-        $salesPayload = null;
+        $payloadMessage = $message;
+        $payloadLineMessage = $lineMessage;
+        $payloadNormalized = $normalized;
 
-        if (filled($salesSection)) {
-            $salesPayload = array_merge(
-                $this->basePayload($salesSection, 'sales'),
-                $this->parseSales($this->normalizeLines($salesSection)),
-            );
+        if ($type === 'opname' && ($opnameSection = $this->opnameSection($message))) {
+            $payloadMessage = $opnameSection;
+            $payloadLineMessage = $this->normalizeLines($opnameSection);
+            $payloadNormalized = $this->normalize($opnameSection);
         }
 
-        if ($type === 'opname' && $salesPayload && ! empty($salesPayload['sales_items'])) {
-            $opnameSection = $this->opnameSection($message) ?? $message;
-            $opnamePayload = array_merge(
-                $this->basePayload($opnameSection, 'opname'),
-                $this->parseOpname($this->normalizeLines($opnameSection)),
-            );
-
-            $reports = [
-                [
-                    'report_type' => 'sales',
-                    'parsed_payload' => $salesPayload,
-                    'missing_fields' => $this->missingRequiredFields('sales', $salesPayload),
-                ],
-                [
-                    'report_type' => 'opname',
-                    'parsed_payload' => $opnamePayload,
-                    'missing_fields' => $this->missingRequiredFields('opname', $opnamePayload),
-                ],
-            ];
-
-            $missingFields = $this->missingRequiredFields('mixed', ['reports' => $reports]);
-            $confidence = $this->mixedConfidence($reports);
-
-            return [
-                'report_type' => 'mixed',
-                'parsed_payload' => [
-                    ...$this->basePayload($message, 'mixed'),
-                    'reports' => $reports,
-                    'missing_fields' => $missingFields,
-                ],
-                'confidence' => $confidence,
-                'status' => empty($missingFields) && $confidence >= 75
-                    ? 'pending_approval'
-                    : 'needs_review',
-                'error_notes' => empty($missingFields)
-                    ? null
-                    : 'Perlu dilengkapi: ' . implode(', ', $missingFields),
-            ];
-        }
-
-        if (! $type && $salesPayload && ! empty($salesPayload['sales_items'])) {
-            $type = 'sales';
-        }
-
-        $payload = $this->basePayload($message, $type);
+        $payload = $this->basePayload($payloadMessage, $type);
 
         $payload = match ($type) {
-            'sales' => array_merge($payload, $this->parseSales($lineMessage)),
-            'retur' => array_merge($payload, $this->parseRetur($normalized, $lineMessage)),
-            'rijek' => array_merge($payload, $this->parseRijek($normalized, $lineMessage)),
-            'kupas' => array_merge($payload, $this->parseKupas($normalized, $lineMessage)),
-            'frozen' => array_merge($payload, $this->parseFrozen($normalized, $lineMessage)),
-            'fresh_loss' => array_merge($payload, $this->parseFreshLoss($normalized, $lineMessage)),
-            'opname' => array_merge($payload, $this->parseOpname($lineMessage)),
+            'retur' => array_merge($payload, $this->parseRetur($payloadNormalized, $payloadLineMessage)),
+            'rijek' => array_merge($payload, $this->parseRijek($payloadNormalized, $payloadLineMessage)),
+            'kupas' => array_merge($payload, $this->parseKupas($payloadNormalized, $payloadLineMessage)),
+            'frozen' => array_merge($payload, $this->parseFrozen($payloadNormalized, $payloadLineMessage)),
+            'fresh_loss' => array_merge($payload, $this->parseFreshLoss($payloadNormalized, $payloadLineMessage)),
+            'opname' => array_merge($payload, $this->parseOpname($payloadLineMessage)),
             default => $payload,
         };
 
@@ -311,6 +266,11 @@ class WhatsappReportParser
             }
 
             $inventoryItem = $this->matchInventoryItem($label);
+
+            if (! $this->isSellableSalesItem($inventoryItem)) {
+                continue;
+            }
+
             $unitPrice = $quantityAndPrice['unit_price'];
 
             $items[] = [
@@ -372,6 +332,7 @@ class WhatsappReportParser
             'sticker batang' => 'Stiker Batang',
             'sticker durpas' => 'Stiker Durpas',
             'soaker pad' => 'soaker pad',
+            'soakerpad' => 'soaker pad',
         ] as $label => $name) {
             $value = $this->fieldValue([$label], $lineMessage)
                 ?? $this->opnameTextValue($label, $lineMessage);
@@ -429,16 +390,71 @@ class WhatsappReportParser
             ];
         }
 
-        if (($kg = $this->numberFromOpnameField(['durpas frozen kg'], $message)) !== null) {
-            $items[] = [
-                ...$varietyData,
-                'product_type' => 'Daging Frozen',
-                'physical_qty_kg' => $kg,
-                'physical_qty_pack' => $this->numberFromOpnameField(['durpas frozen pack'], $message, false),
-            ];
-        }
+        $items = array_merge($items, $this->frozenOpnameItemsFromText($message, $variety));
 
         return $items;
+    }
+
+    private function frozenOpnameItemsFromText(string $message, ?array $defaultVariety = null): array
+    {
+        $entries = [];
+        $varieties = DurianVariety::all(['id', 'name']);
+
+        foreach (preg_split('/\R/u', $message) ?: [] as $line) {
+            $line = trim($line);
+
+            if (! preg_match('/^(.+?)\s*[:=]\s*(.+)$/u', $line, $matches)) {
+                continue;
+            }
+
+            $label = $this->normalize($matches[1]);
+            $labelLookup = $this->normalizeLookup($label);
+
+            if (! str_contains($labelLookup, 'durpasfrozen')) {
+                continue;
+            }
+
+            $value = trim($matches[2]);
+            $variety = $this->inlineDurpasVariety($label, $varieties) ?? $defaultVariety;
+            $key = (string) ($variety['id'] ?? $this->normalizeLookup($label));
+
+            $entries[$key] ??= [
+                'durian_variety_id' => $variety['id'] ?? null,
+                'durian_variety_name' => $variety['name'] ?? null,
+                'product_type' => 'Daging Frozen',
+                'physical_qty_kg' => null,
+                'physical_qty_pack' => null,
+            ];
+
+            if (str_contains($labelLookup, 'pack')) {
+                $entries[$key]['physical_qty_pack'] = $this->packQtyFromOpnameValue($value);
+            }
+
+            if (str_contains($labelLookup, 'kg') || $this->kgQtyFromOpnameValue($value) !== null) {
+                $entries[$key]['physical_qty_kg'] = $this->kgQtyFromOpnameValue($value);
+                $entries[$key]['physical_qty_pack'] ??= $this->packQtyFromOpnameValue($value);
+            }
+        }
+
+        return collect($entries)
+            ->filter(fn (array $entry): bool => $entry['physical_qty_kg'] !== null)
+            ->values()
+            ->all();
+    }
+
+    private function inlineDurpasVariety(string $label, $varieties): ?array
+    {
+        $text = (string) Str::of($label)
+            ->replaceMatches('/\bdurpas\s+frozen\b/u', ' ')
+            ->replaceMatches('/\b(?:pack|kg)\b/u', ' ')
+            ->replaceMatches('/\s+/', ' ')
+            ->trim();
+
+        if ($text === '') {
+            return null;
+        }
+
+        return $this->matchModel($text, $varieties, 20);
     }
 
     private function messageWithoutAdditionalDurianBlocks(string $message): string
@@ -482,7 +498,7 @@ class WhatsappReportParser
      */
     private function jenisDurianOpnameBlocks(string $message): array
     {
-        if (! preg_match_all('/^jenis durian\s*[:=\-]?\s*([^\n]+)\n(.*?)(?=^jenis durian\s*[:=\-]|^thinwall\b|^stiker\b|^sticker\b|^handglove\b|^hand glove\b|^glove\b|^tisu\b|^tissue\b|^sendok tester\b|^tusuk gigi\b|\z)/msu', $message, $matches, PREG_SET_ORDER)) {
+        if (! preg_match_all('/^jenis durian\s*[:=\-]?\s*([^\n]+)\n(.*?)(?=^jenis durian\s*[:=\-]|^thinwall\b|^stiker\b|^sticker\b|^handglove\b|^hand glove\b|^glove\b|^sarung tangan\b|^tisu\b|^tissue\b|^sendok tester\b|^tusuk gigi\b|^soaker\s*pad\b|^soakerpad\b|\z)/msu', $message, $matches, PREG_SET_ORDER)) {
             return [];
         }
 
@@ -508,9 +524,13 @@ class WhatsappReportParser
 
     private function salesSection(string $message): ?string
     {
-        $parts = preg_split('/^\s*(?:stok|stock)\s+opname\b/imu', $message, 2);
+        if (preg_match('/^\s*[*_`~#-]*\s*(?:stok|stock)\s+opname\b/iu', $message)) {
+            return null;
+        }
 
-        if (! $parts || trim($parts[0] ?? '') === '') {
+        $parts = preg_split('/^\s*[*_`~#-]*\s*(?:stok|stock)\s+opname\b/imu', $message, 2);
+
+        if (! $parts || count($parts) < 2 || trim($parts[0] ?? '') === '') {
             return null;
         }
 
@@ -519,7 +539,7 @@ class WhatsappReportParser
 
     private function opnameSection(string $message): ?string
     {
-        if (preg_match('/^\s*(?:stok|stock)\s+opname\b.*\z/imsu', $message, $matches)) {
+        if (preg_match('/^\s*[*_`~#-]*\s*(?:stok|stock)\s+opname\b.*\z/imsu', $message, $matches)) {
             return trim($matches[0]);
         }
 
@@ -544,10 +564,22 @@ class WhatsappReportParser
             || str_contains($label, 'thinwall')
             || str_contains($label, 'stiker')
             || str_contains($label, 'handglove')
+            || str_contains($label, 'sarungtangan')
             || str_contains($label, 'tisu')
             || str_contains($label, 'tissue')
             || str_contains($label, 'sendoktester')
-            || str_contains($label, 'tusukgigi');
+            || str_contains($label, 'tusukgigi')
+            || str_contains($label, 'soakerpad');
+    }
+
+    private function isSellableSalesItem(?array $inventoryItem): bool
+    {
+        if (! $inventoryItem) {
+            return true;
+        }
+
+        return (bool) ($inventoryItem['is_sellable'] ?? false)
+            && InventoryItem::isSellableCategory($inventoryItem['category'] ?? null);
     }
 
     /**
@@ -890,17 +922,19 @@ class WhatsappReportParser
 
     private function matchInventoryItem(string $name): ?array
     {
-        $matched = $this->matchModel($this->normalize($name), InventoryItem::all(['id', 'name', 'unit']), 45);
+        $matched = $this->matchModel($this->normalize($name), InventoryItem::all(['id', 'name', 'unit', 'category', 'is_sellable']), 45);
 
         if (! $matched) {
             return null;
         }
 
-        $record = InventoryItem::find($matched['id'], ['id', 'name', 'unit']);
+        $record = InventoryItem::find($matched['id'], ['id', 'name', 'unit', 'category', 'is_sellable']);
 
         return [
             ...$matched,
             'unit' => $record?->unit,
+            'category' => $record?->category,
+            'is_sellable' => (bool) $record?->is_sellable,
         ];
     }
 
@@ -971,6 +1005,50 @@ class WhatsappReportParser
             ?? $this->numberAfter($labels, $message, $allowDecimal);
     }
 
+    private function kgQtyFromOpnameValue(string $value): ?float
+    {
+        $text = $this->normalize($value);
+
+        if ($text === '' || preg_match('/^\s*[-–—]\s*$/u', $value)) {
+            return null;
+        }
+
+        if (preg_match('/(\d+(?:[\.,]\s*\d+)?)\s*(?:gr|gram)\b/u', $text, $matches)) {
+            return $this->normalizeGramLikeNumber($matches[1]);
+        }
+
+        if (preg_match('/(\d+(?:[\.,]\s*\d+)?)\s*(?:kg|kilo)\b/u', $text, $matches)) {
+            return $this->normalizeNumber($matches[1]);
+        }
+
+        if (preg_match_all('/(\d+(?:[\.,]\s*\d+)?)/u', $text, $matches) && ! empty($matches[1])) {
+            $number = end($matches[1]);
+
+            return $this->normalizeNumber($number);
+        }
+
+        return null;
+    }
+
+    private function packQtyFromOpnameValue(string $value): ?float
+    {
+        $text = $this->normalize($value);
+
+        if ($text === '' || preg_match('/^\s*[-–—]\s*$/u', $value)) {
+            return null;
+        }
+
+        if (preg_match('/(\d+(?:[\.,]\s*\d+)?)\s*(?:pack|pcs|pc)\b/u', $text, $matches)) {
+            return $this->normalizeNumber($matches[1]);
+        }
+
+        if (preg_match('/^(\d+(?:[\.,]\s*\d+)?)/u', $text, $matches)) {
+            return $this->normalizeNumber($matches[1]);
+        }
+
+        return null;
+    }
+
     private function opnameTextValue(string $label, string $message): ?string
     {
         $labels = [
@@ -984,6 +1062,7 @@ class WhatsappReportParser
             'tisu',
             'karet',
             'soaker pad',
+            'soakerpad',
 
 
         ];

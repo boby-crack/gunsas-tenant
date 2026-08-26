@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\DurianVariety;
 use App\Models\InventoryItem;
 use App\Models\Outlet;
-use App\Models\Sale;
 use App\Models\StockOpname;
 use App\Models\WhatsappReport;
 use App\Services\WhatsappReportApprover;
@@ -17,22 +16,17 @@ class WhatsappReportParserTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_mixed_sales_and_multi_variety_opname_chat_is_parsed_and_approved(): void
+    public function test_stock_opname_header_ignores_sales_text_before_it_and_approves_opname(): void
     {
         $this->seedMasterDataForWhatsappSample();
 
         $parsed = app(WhatsappReportParser::class)->parse($this->sampleMixedReport());
+        $opnamePayload = $parsed['parsed_payload'];
 
-        $this->assertSame('mixed', $parsed['report_type']);
+        $this->assertSame('opname', $parsed['report_type']);
         $this->assertSame('pending_approval', $parsed['status'], $parsed['error_notes'] ?? '');
-        $this->assertCount(2, $parsed['parsed_payload']['reports']);
-
-        $salesPayload = $parsed['parsed_payload']['reports'][0]['parsed_payload'];
-        $opnamePayload = $parsed['parsed_payload']['reports'][1]['parsed_payload'];
-
-        $this->assertSame('TB BSD', $salesPayload['outlet_name']);
-        $this->assertSame('2026-08-02', $salesPayload['date']);
-        $this->assertCount(21, $salesPayload['sales_items']);
+        $this->assertArrayNotHasKey('reports', $opnamePayload);
+        $this->assertArrayNotHasKey('sales_items', $opnamePayload);
 
         $this->assertSame('TB Bintaro', $opnamePayload['outlet_name']);
         $this->assertSame('2026-07-12', $opnamePayload['date']);
@@ -53,8 +47,6 @@ class WhatsappReportParserTest extends TestCase
 
         $this->assertTrue($result['ok'], $result['message']);
         $this->assertSame('approved', $report->refresh()->status);
-        $this->assertSame(1, Sale::count());
-        $this->assertSame(21, Sale::first()->items()->count());
         $this->assertSame(10, StockOpname::count());
     }
 
@@ -84,6 +76,41 @@ class WhatsappReportParserTest extends TestCase
         $this->assertSame(1, WhatsappReport::count());
     }
 
+    public function test_weekly_stock_opname_keeps_operational_items_out_of_sales(): void
+    {
+        $this->seedMasterDataForWhatsappSample();
+
+        $parsed = app(WhatsappReportParser::class)->parse($this->sampleWeeklyOpnameReport());
+        $payload = $parsed['parsed_payload'];
+
+        $this->assertSame('opname', $parsed['report_type']);
+        $this->assertSame('pending_approval', $parsed['status'], $parsed['error_notes'] ?? '');
+        $this->assertArrayNotHasKey('reports', $payload);
+        $this->assertSame('TIPTOP RAWAMANGUN', $payload['outlet_name']);
+        $this->assertSame('2026-08-23', $payload['date']);
+
+        $this->assertCount(6, $payload['opname_items']);
+        $this->assertCount(7, $payload['inventory_items']);
+
+        $frozenByVariety = collect($payload['opname_items'])
+            ->where('product_type', 'Daging Frozen')
+            ->keyBy('durian_variety_name');
+
+        $this->assertSame(0.765, $frozenByVariety['MONTHONG']['physical_qty_kg']);
+        $this->assertSame(3.0, $frozenByVariety['MONTHONG']['physical_qty_pack']);
+        $this->assertSame(4.356, $frozenByVariety['BAWOR']['physical_qty_kg']);
+        $this->assertSame(13.0, $frozenByVariety['BAWOR']['physical_qty_pack']);
+        $this->assertSame(0.268, $frozenByVariety['MASMUAR']['physical_qty_kg']);
+        $this->assertSame(1.0, $frozenByVariety['MASMUAR']['physical_qty_pack']);
+        $this->assertSame(0.39, $frozenByVariety['LOKAL PREMIUM']['physical_qty_kg']);
+        $this->assertSame(1.0, $frozenByVariety['LOKAL PREMIUM']['physical_qty_pack']);
+
+        $inventoryByName = collect($payload['inventory_items'])->keyBy('inventory_item_name');
+
+        $this->assertSame(75.0, $inventoryByName['soaker pad']['physical_qty']);
+        $this->assertSame(2.0, $inventoryByName['Sarung Tangan Plastik']['physical_qty']);
+    }
+
     private function seedMasterDataForWhatsappSample(): void
     {
         Outlet::create([
@@ -98,7 +125,13 @@ class WhatsappReportParserTest extends TestCase
             'partner_share_percent' => 20,
         ]);
 
-        foreach (['MONTHONG', 'MUSANG KING', 'BLACKTHORN'] as $name) {
+        Outlet::create([
+            'name' => 'TIPTOP RAWAMANGUN',
+            'aliases' => 'tiptop rawamangun',
+            'partner_share_percent' => 20,
+        ]);
+
+        foreach (['MONTHONG', 'MUSANG KING', 'BLACKTHORN', 'BAWOR', 'MASMUAR', 'LOKAL PREMIUM'] as $name) {
             DurianVariety::create(['name' => $name]);
         }
 
@@ -144,6 +177,7 @@ class WhatsappReportParserTest extends TestCase
             ['tissue', 'pack'],
             ['Sendok Tester', 'pack'],
             ['Tusuk Gigi', 'pack'],
+            ['soaker pad', 'pcs'],
         ] as [$name, $unit]) {
             InventoryItem::create([
                 'name' => $name,
@@ -215,6 +249,39 @@ Tisu : - pack
 Sendok tester: 3pack
 Tusuk gigi: 2pack
 ++++++++++++++++++++++
+TEXT;
+    }
+
+    private function sampleWeeklyOpnameReport(): string
+    {
+        return <<<'TEXT'
+STOK OPNAME MINGGUAN
+
+Tanggal : 23 Agustus 2026
+NAMA OTLET : Tiptop Rawamangun
+JENIS DURIAN : monthong 
+BUAH UTUH (butir): 6
+BUAH UTUH (kg) : 16.906kg
+KUPAS FRESH (pack) : 4
+KUPAS FRESH ( kg ) : 1.076
+DURPAS FROZEN MONTHONG (pack) : 3 
+DURPAS FROZEN MONTHONG (kg) : 765gr
+
+Jenis durian : Bawor
+DURPAS FROZEN BAWOR ( pack) : 13
+DURPAS FROZEN BAWOR (kg) : 4.356kg
+
+Jenis durian : Masmuar
+DURPAS FROZEN MASMUAR (pack) : 1 (268gr) 
+DURPAS FROZEN LOKAL PREMIUM : 1 (390gr) 
+ 
+Thinwall  :  4pcs
+Stiker batang: 40pcs 
+Stiker durpas : 210pcs
+Sendok tester : 1 pack
+Tusuk gigi : 1
+Sarung tangan plastik : 2 pack
+Soakerpad : 75pcs
 TEXT;
     }
 }

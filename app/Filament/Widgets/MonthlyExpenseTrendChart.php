@@ -65,7 +65,7 @@ class MonthlyExpenseTrendChart extends ChartWidget
     {
         return RawJs::make(<<<'JS'
             (() => {
-                const mobile = window.matchMedia('(max-width: 640px)').matches;
+                const mobile = window.matchMedia('(max-width: 768px)').matches;
                 const compact = (value) => new Intl.NumberFormat('id-ID', {
                     notation: 'compact',
                     compactDisplay: 'short',
@@ -91,6 +91,9 @@ class MonthlyExpenseTrendChart extends ChartWidget
                             maxRotation: 0,
                             minRotation: 0,
                             maxTicksLimit: mobile ? 4 : 8,
+                            font: {
+                                size: 10,
+                            },
                             callback: function (value) {
                                 const label = this.getLabelForValue(value);
 
@@ -106,6 +109,7 @@ class MonthlyExpenseTrendChart extends ChartWidget
                         },
                         ticks: {
                             ...(mobile ? { maxTicksLimit: 4 } : {}),
+                            ...(mobile ? { font: { size: 10 } } : {}),
                             callback: (value) => 'Rp ' + compact(value),
                         },
                     },

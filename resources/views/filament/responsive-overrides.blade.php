@@ -35,6 +35,29 @@
             display: grid;
             gap: 0.75rem;
         }
+
+        .fi-wi-chart,
+        .fi-wi-chart > div {
+            min-width: 0;
+        }
+
+        .fi-wi-chart .fi-section-header {
+            padding: 1rem 1rem 0.5rem !important;
+        }
+
+        .fi-wi-chart .fi-section-header-heading {
+            font-size: 1rem;
+            line-height: 1.5rem;
+        }
+
+        .fi-wi-chart .fi-section-content {
+            padding: 0.75rem !important;
+        }
+
+        .fi-wi-chart canvas {
+            min-height: 220px;
+            max-height: 280px;
+        }
     }
 
     @media (max-width: 640px) {
@@ -102,24 +125,6 @@
         .fi-modal-window {
             max-width: calc(100vw - 1rem) !important;
             width: calc(100vw - 1rem) !important;
-        }
-
-        .fi-wi-chart,
-        .fi-wi-chart > div {
-            min-width: 0;
-        }
-
-        .fi-wi-chart .fi-section-header {
-            padding: 1rem 1rem 0.5rem !important;
-        }
-
-        .fi-wi-chart .fi-section-content {
-            padding: 0.75rem !important;
-        }
-
-        .fi-wi-chart canvas {
-            min-height: 220px;
-            max-height: 280px;
         }
 
         .gunsas-action-row {

@@ -77,7 +77,7 @@ class MonthlyReturnClaimChart extends ChartWidget
     {
         return RawJs::make(<<<'JS'
             (() => {
-                const mobile = window.matchMedia('(max-width: 640px)').matches;
+                const mobile = window.matchMedia('(max-width: 768px)').matches;
                 const compact = (value, digits = 1) => new Intl.NumberFormat('id-ID', {
                     notation: 'compact',
                     compactDisplay: 'short',
@@ -103,6 +103,9 @@ class MonthlyReturnClaimChart extends ChartWidget
                             maxRotation: 0,
                             minRotation: 0,
                             maxTicksLimit: mobile ? 4 : 8,
+                            font: {
+                                size: 10,
+                            },
                             callback: function (value) {
                                 const label = this.getLabelForValue(value);
 
@@ -119,6 +122,7 @@ class MonthlyReturnClaimChart extends ChartWidget
                         },
                         ticks: {
                             ...(mobile ? { maxTicksLimit: 4 } : {}),
+                            ...(mobile ? { font: { size: 10 } } : {}),
                             callback: (value) => mobile ? compact(value) : compact(value, 2) + ' kg',
                         },
                     },
@@ -135,6 +139,7 @@ class MonthlyReturnClaimChart extends ChartWidget
                         },
                         ticks: {
                             maxTicksLimit: 5,
+                            ...(mobile ? { font: { size: 10 } } : {}),
                             callback: (value) => 'Rp ' + compact(value),
                         },
                     },
@@ -145,6 +150,9 @@ class MonthlyReturnClaimChart extends ChartWidget
                         labels: {
                             boxHeight: mobile ? 10 : 12,
                             boxWidth: mobile ? 10 : 12,
+                            font: {
+                                size: 11,
+                            },
                             padding: mobile ? 10 : 16,
                             usePointStyle: true,
                         },
