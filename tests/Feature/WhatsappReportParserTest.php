@@ -48,6 +48,13 @@ class WhatsappReportParserTest extends TestCase
         $this->assertTrue($result['ok'], $result['message']);
         $this->assertSame('approved', $report->refresh()->status);
         $this->assertSame(10, StockOpname::count());
+        $this->assertSame(
+            0,
+            StockOpname::query()
+                ->where('product_type', 'Inventory Item')
+                ->whereNotNull('durian_variety_id')
+                ->count(),
+        );
     }
 
     public function test_whatsapp_webhook_secret_blocks_invalid_requests(): void

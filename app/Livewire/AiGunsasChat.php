@@ -315,9 +315,11 @@ class AiGunsasChat extends Component
     private function filtersFromQuestion(string $question): array
     {
         $period = $this->periodFromQuestion($question);
+        $outletId = $this->outletIdFromQuestion($question);
 
         return [
-            'outlet_id' => $this->outletIdFromQuestion($question),
+            'outlet_group' => $outletId ? null : $this->outletGroupFromQuestion($question),
+            'outlet_id' => $outletId,
             'date_from' => $period['from'],
             'date_until' => $period['until'],
         ];
@@ -419,6 +421,10 @@ class AiGunsasChat extends Component
     {
         $text = $this->normalize($question);
 
+        if (Str::contains($text, ['grup ', 'group ', 'kelompok '])) {
+            return null;
+        }
+
         if (Str::contains($text, ['semua outlet', 'semua toko', 'global'])) {
             return null;
         }
@@ -427,6 +433,34 @@ class AiGunsasChat extends Component
             foreach ($this->outletTerms($outlet) as $term) {
                 if ($term !== '' && str_contains($text, $term)) {
                     return $outlet->id;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function outletGroupFromQuestion(string $question): ?string
+    {
+        $text = $this->normalize($question);
+
+        if (Str::contains($text, ['semua outlet', 'semua toko', 'global'])) {
+            return null;
+        }
+
+        foreach (Outlet::GROUPS as $key => $label) {
+            $terms = [
+                $key,
+                $label,
+                str_replace('_', ' ', $key),
+                'grup ' . $label,
+                'group ' . $label,
+                'kelompok ' . $label,
+            ];
+
+            foreach ($terms as $term) {
+                if (str_contains($text, $this->normalize($term))) {
+                    return $key;
                 }
             }
         }

@@ -3,12 +3,17 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 class GunsasAiAnalyst
 {
     public function answer(string $question, array $insights, array $databaseContext = [], array $conversation = []): string
     {
+        if ($answer = $this->deterministicAnswer($question, $insights, $databaseContext)) {
+            return $answer;
+        }
+
         return match (config('services.ai.provider', 'gemini')) {
             'openai' => $this->answerWithOpenAi($question, $insights, $databaseContext, $conversation),
             'gemini' => $this->answerWithGemini($question, $insights, $databaseContext, $conversation),
@@ -89,6 +94,94 @@ class GunsasAiAnalyst
             'temperature' => 0.45,
             'max_tokens' => 1800,
         ];
+    }
+
+    private function deterministicAnswer(string $question, array $insights, array $databaseContext): ?string
+    {
+        $text = $this->normalize($question);
+
+        if (! Str::contains($text, ['untung', 'rugi', 'profit', 'laba', 'margin'])) {
+            return null;
+        }
+
+        $filters = $insights['filters'] ?? [];
+        $sales = $insights['sales'] ?? [];
+        $costs = $insights['costs'] ?? [];
+        $returns = $insights['returns'] ?? [];
+        $profit = $insights['profit'] ?? [];
+
+        $netProfit = (float) ($profit['net_profit'] ?? 0);
+        $gunsasRevenue = (float) ($sales['gunsas_revenue'] ?? 0);
+        $netSales = (float) ($sales['net_sales'] ?? 0);
+        $records = (int) data_get($databaseContext, 'sales.summary.records', 0);
+
+        if ($records === 0 && $netSales <= 0 && $gunsasRevenue <= 0) {
+            return implode("\n\n", [
+                '**Belum bisa disimpulkan untung/rugi dari angka sales, karena data sales pada filter ini kosong.**',
+                'Konteks yang terbaca: ' . $this->filterLabel($filters) . '.',
+                'Cek apakah filter periode/outlet sudah benar, atau apakah data sales untuk periode itu sudah diinput.',
+            ]);
+        }
+
+        $status = match (true) {
+            $netProfit > 0 => 'untung',
+            $netProfit < 0 => 'rugi',
+            default => 'impas',
+        };
+
+        $lines = [
+            'Berdasarkan data yang terbaca, **' . $this->filterLabel($filters) . ' ' . $status . '**.',
+            '',
+            '- Sales net: **' . $this->money($netSales) . '**',
+            '- Pendapatan Gunsas: **' . $this->money($gunsasRevenue) . '**',
+            '- HPP sales: **' . $this->money($costs['hpp_sales'] ?? 0) . '**',
+            '- Expense: **' . $this->money($costs['expenses'] ?? 0) . '**',
+            '- Inventory terpakai: **' . $this->money($costs['inventory_usage'] ?? 0) . '**',
+            '- Loss retur final: **' . $this->money($returns['loss_final'] ?? 0) . '**',
+            '- Loss opname: **' . $this->money($costs['opname_loss'] ?? 0) . '**',
+            '',
+            'Profit bersih: **' . $this->money($netProfit) . '**',
+            'Margin bersih: **' . $this->percent($profit['net_margin'] ?? 0) . '**',
+        ];
+
+        if (abs((float) ($insights['inventory']['amount'] ?? 0)) > 0) {
+            $lines[] = '';
+            $lines[] = 'Catatan: nilai stok tersisa/inventory valuation **' . $this->money($insights['inventory']['amount'] ?? 0) . '** tidak aku campur ke profit bersih. Kalau stok ikut dihitung sebagai posisi aset, angkanya jadi **' . $this->money($profit['net_asset_position'] ?? 0) . '**.';
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function filterLabel(array $filters): string
+    {
+        $outlet = (string) ($filters['outlet_name'] ?? 'Semua Outlet');
+        $from = $filters['date_from'] ?? null;
+        $until = $filters['date_until'] ?? null;
+
+        if ($from && $until) {
+            return $outlet . ' periode ' . $from . ' sampai ' . $until;
+        }
+
+        return $outlet;
+    }
+
+    private function money(mixed $value): string
+    {
+        return 'Rp ' . number_format((float) $value, 0, ',', '.');
+    }
+
+    private function percent(mixed $value): string
+    {
+        return number_format((float) $value, 2, ',', '.') . '%';
+    }
+
+    private function normalize(string $value): string
+    {
+        return (string) Str::of($value)
+            ->lower()
+            ->replaceMatches('/[^\pL\pN\s\/\-]/u', ' ')
+            ->replaceMatches('/\s+/', ' ')
+            ->trim();
     }
 
     private function buildGeminiPayload(string $question, array $insights, array $databaseContext, array $conversation): array

@@ -622,7 +622,7 @@ class GunsasBusinessDataContext
 
         if (! empty($filters['outlet_group'])) {
             return Outlet::query()
-                ->where('group_name', $filters['outlet_group'])
+                ->where('group_name', Outlet::normalizeGroupName($filters['outlet_group']))
                 ->pluck('id')
                 ->all();
         }

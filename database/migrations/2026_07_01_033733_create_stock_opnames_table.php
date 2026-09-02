@@ -14,7 +14,7 @@ return new class extends Migration
     Schema::create('stock_opnames', function (Blueprint $table) {
         $table->id();
         $table->foreignId('outlet_id')->constrained()->onDelete('cascade');
-        $table->foreignId('durian_variety_id')->constrained()->onDelete('cascade');
+        $table->foreignId('durian_variety_id')->nullable()->constrained()->nullOnDelete();
         $table->date('date');
         
         // Jenis produk yang dicek fisik (Buah Utuh / Kupas Fresh / Durpas Frozen)

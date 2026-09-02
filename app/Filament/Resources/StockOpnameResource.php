@@ -281,7 +281,12 @@ class StockOpnameResource extends Resource
                 Tables\Columns\TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('outlet.name')->label('Outlet')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('date')->label('Tanggal')->date()->sortable(),
-                Tables\Columns\TextColumn::make('durianVariety.name')->label('Varian')->searchable()->sortable()->placeholder('-'),
+                Tables\Columns\TextColumn::make('durianVariety.name')
+                    ->label('Varian')
+                    ->state(fn (StockOpname $record): ?string => $record->product_type === 'Inventory Item' ? null : $record->durianVariety?->name)
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('-'),
                 Tables\Columns\TextColumn::make('inventoryItem.name')->label('Produk')->searchable()->sortable()->placeholder('-'),
                 Tables\Columns\TextColumn::make('product_type')->label('Kategori')->sortable(),
                 Tables\Columns\TextColumn::make('system_qty_kg')->label('Buku (KG)')->numeric(3, decimalSeparator: ',', thousandsSeparator: '.')->sortable(),

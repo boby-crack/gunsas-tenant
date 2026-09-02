@@ -282,7 +282,7 @@ class WhatsappReportApprover
 
             $records[] = StockOpname::create([
                 'outlet_id' => $payload['outlet_id'],
-                'durian_variety_id' => $payload['durian_variety_id'] ?? DurianVariety::query()->value('id'),
+                'durian_variety_id' => null,
                 'inventory_item_id' => $inventoryItem->id,
                 'date' => $date,
                 'product_type' => 'Inventory Item',
