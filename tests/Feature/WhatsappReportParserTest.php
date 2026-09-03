@@ -178,6 +178,87 @@ TEXT);
         ], $names);
     }
 
+    public function test_stock_opname_reads_sellable_inventory_products_from_master_items(): void
+    {
+        $this->seedMasterDataForWhatsappSample();
+
+        $parsed = app(WhatsappReportParser::class)->parse(<<<'TEXT'
+STOK OPNAME MINGGUAN
+
+Tanggal : 23 Agustus 2026
+Nama Outlet : TIPTOP RAWAMANGUN
+
+Pancake isi 2 : 10 pcs
+Pancake isi 8 : 5 pcs
+Mochi 2 Durian : 8 pcs
+Es Krim Kecil : 12 pcs
+Thinwall : 20 pcs
+Stiker Durpas : 100 pcs
+TEXT);
+
+        $payload = $parsed['parsed_payload'];
+        $items = collect($payload['inventory_items'])->keyBy('inventory_item_name');
+
+        $this->assertSame('opname', $parsed['report_type']);
+        $this->assertSame('pending_approval', $parsed['status'], $parsed['error_notes'] ?? '');
+        $this->assertNull($payload['durian_variety_id']);
+        $this->assertNull($payload['durian_variety_name']);
+        $this->assertCount(6, $payload['inventory_items']);
+        $this->assertSame(10.0, $items['Pancake isi 2']['physical_qty']);
+        $this->assertSame(5.0, $items['Pancake isi 8']['physical_qty']);
+        $this->assertSame(8.0, $items['Mochi 2 Durian']['physical_qty']);
+        $this->assertSame(12.0, $items['Es Krim Kecil']['physical_qty']);
+        $this->assertSame('unit', $items['Pancake isi 2']['unit']);
+        $this->assertSame('unit', $items['Mochi 2 Durian']['unit']);
+        $this->assertSame('pcs', $items['Thinwall']['unit']);
+        $this->assertEmpty($payload['opname_items']);
+    }
+
+    public function test_stock_opname_reads_durian_products_and_inventory_products_in_one_chat(): void
+    {
+        $this->seedMasterDataForWhatsappSample();
+
+        $parsed = app(WhatsappReportParser::class)->parse(<<<'TEXT'
+STOK OPNAME MINGGUAN
+
+Tanggal : 23 Agustus 2026
+Nama Outlet : TIPTOP RAWAMANGUN
+
+JENIS DURIAN : MONTHONG
+BUAH UTUH (butir): 6
+BUAH UTUH (kg) : 16.906kg
+KUPAS FRESH (pack) : 4
+KUPAS FRESH ( kg ) : 1.076
+DURPAS FROZEN (pack) : 3
+DURPAS FROZEN (kg) : 765gr
+
+Pancake isi 2 : 10 pcs
+Mochi 2 Durian : 8 pcs
+Thinwall : 20 pcs
+Stiker Durpas : 100 pcs
+TEXT);
+
+        $payload = $parsed['parsed_payload'];
+        $durianItems = collect($payload['opname_items'])->keyBy('product_type');
+        $inventoryItems = collect($payload['inventory_items'])->keyBy('inventory_item_name');
+
+        $this->assertSame('opname', $parsed['report_type']);
+        $this->assertSame('pending_approval', $parsed['status'], $parsed['error_notes'] ?? '');
+        $this->assertCount(3, $payload['opname_items']);
+        $this->assertCount(4, $payload['inventory_items']);
+        $this->assertSame('MONTHONG', $payload['durian_variety_name']);
+        $this->assertSame(16.906, $durianItems['Buah Utuh']['physical_qty_kg']);
+        $this->assertSame(6.0, $durianItems['Buah Utuh']['physical_qty_butir']);
+        $this->assertSame(1.076, $durianItems['Daging Fresh']['physical_qty_kg']);
+        $this->assertSame(0.765, $durianItems['Daging Frozen']['physical_qty_kg']);
+        $this->assertSame(10.0, $inventoryItems['Pancake isi 2']['physical_qty']);
+        $this->assertSame(8.0, $inventoryItems['Mochi 2 Durian']['physical_qty']);
+        $this->assertSame(20.0, $inventoryItems['Thinwall']['physical_qty']);
+        $this->assertSame(100.0, $inventoryItems['Stiker Durpas']['physical_qty']);
+        $this->assertSame('unit', $inventoryItems['Pancake isi 2']['unit']);
+        $this->assertSame('pcs', $inventoryItems['Thinwall']['unit']);
+    }
+
 
 
     private function seedMasterDataForWhatsappSample(): void

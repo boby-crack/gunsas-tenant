@@ -289,7 +289,7 @@ class WhatsappReportApprover
                 'system_qty_kg' => round($systemQty, 3),
                 'physical_qty_kg' => round($physicalQty, 3),
                 'difference_qty_kg' => round($physicalQty - $systemQty, 3),
-                'generic_unit' => $item['unit'] ?? $inventoryItem->unit,
+                'generic_unit' => $inventoryItem->unit ?: ($item['unit'] ?? null),
                 'generic_unit_cost' => round($unitCost, 2),
                 'generic_consumed_qty' => round($consumedQty, 3),
                 'generic_consumed_amount' => round($consumedQty * $unitCost, 2),

@@ -71,7 +71,10 @@ class WhatsappReportParser
         $outletText = $this->fieldValue(['nama otlet', 'nama outlet', 'otlet', 'outlet'], $lineMessage);
         $varietyText = $this->fieldValue(['varian', 'jenis durian', 'durian'], $lineMessage);
         $outlet = $this->matchModel($outletText ?: $normalized, Outlet::all(['id', 'name', 'aliases']), $outletText ? 60 : 25);
-        $variety = $this->matchModel($varietyText ?: $normalized, DurianVariety::all(['id', 'name']), $varietyText ? 60 : 25);
+        $varietySearchText = $varietyText ?: ($type === 'opname' ? null : $normalized);
+        $variety = $varietySearchText
+            ? $this->matchModel($varietySearchText, DurianVariety::all(['id', 'name']), $varietyText ? 60 : 25)
+            : null;
 
         if ($type === 'rijek' && blank($varietyText)) {
             $record = DurianVariety::query()
@@ -88,7 +91,7 @@ class WhatsappReportParser
             }
         }
 
-        if (! $variety && $type !== 'sales' && DurianVariety::count() === 1) {
+        if (! $variety && $type !== 'sales' && ! ($type === 'opname' && blank($varietyText)) && DurianVariety::count() === 1) {
             $record = DurianVariety::first(['id', 'name']);
             $variety = [
                 'id' => $record->id,
@@ -324,30 +327,29 @@ class WhatsappReportParser
             }
         }
 
-        $inventoryItems = [];
+        $inventoryItems = $this->inventoryOpnameItemsFromText($lineMessage);
 
-        foreach ([
-            'thinwall' => 'Thinwall',
-            'stiker batang' => 'Stiker Batang',
-            'stiker durpas' => 'Stiker Durpas',
-            'sendok tester' => 'Sendok Tester',
-            'tusuk gigi' => 'Tusuk Gigi',
-            'sarung tangan plastik' => 'Sarung Tangan Plastik',
-            'tissue' => 'tissue',
-            'tisu' => 'tissue',
-            'handglove' => 'Sarung Tangan Plastik',
-            'hand glove' => 'Sarung Tangan Plastik',
-            'glove' => 'Sarung Tangan Plastik',
-            'karet' => 'karet',
-            'sticker batang' => 'Stiker Batang',
-            'sticker durpas' => 'Stiker Durpas',
-            'soaker pad' => 'soaker pad',
-            'soakerpad' => 'soaker pad',
-        ] as $label => $name) {
-            $value = $this->fieldValue([$label], $lineMessage)
-                ?? $this->opnameTextValue($label, $lineMessage);
+        return [
+            'opname_items' => $durianItems,
+            'inventory_items' => $inventoryItems,
+        ];
+    }
 
-            if (! $value) {
+    private function inventoryOpnameItemsFromText(string $lineMessage): array
+    {
+        $items = [];
+
+        foreach (preg_split('/\R/u', $lineMessage) ?: [] as $line) {
+            $line = trim($line);
+
+            if (! preg_match('/^(.+?)\s*[:=]\s*(.+)$/u', $line, $matches)) {
+                continue;
+            }
+
+            $label = trim($matches[1]);
+            $value = trim($matches[2]);
+
+            if ($this->isNonInventoryOpnameLabel($label)) {
                 continue;
             }
 
@@ -357,21 +359,70 @@ class WhatsappReportParser
                 continue;
             }
 
-            $item = $this->matchInventoryItem($name);
+            $item = $this->inventoryItemFromOpnameLabel($label);
 
-            $inventoryItems[] = [
+            if (! $item) {
+                continue;
+            }
+
+            $key = $item['id'] ? 'id:' . $item['id'] : 'name:' . $this->normalizeLookup($item['name']);
+
+            $items[$key] ??= [
                 'inventory_item_id' => $item['id'] ?? null,
-                'inventory_item_name' => $item['name'] ?? $name,
-                'physical_qty' => $qty,
-                'unit' => $this->unitFromInventoryValue($value),
-                'raw_value' => $value,
+                'inventory_item_name' => $item['name'],
+                'physical_qty' => 0.0,
+                'unit' => $item['unit'] ?: $this->unitFromInventoryValue($value),
+                'raw_value' => '',
             ];
+
+            $items[$key]['physical_qty'] += $qty;
+            $items[$key]['raw_value'] = trim($items[$key]['raw_value'] . ($items[$key]['raw_value'] === '' ? '' : '; ') . $value);
         }
 
-        return [
-            'opname_items' => $durianItems,
-            'inventory_items' => $inventoryItems,
+        return array_values($items);
+    }
+
+    private function inventoryItemFromOpnameLabel(string $label): ?array
+    {
+        $normalized = $this->normalizeLookup($label);
+        $aliases = [
+            'thinwall' => 'Thinwall',
+            'stikerbatang' => 'Stiker Batang',
+            'stickerbatang' => 'Stiker Batang',
+            'stikerdurpas' => 'Stiker Durpas',
+            'stickerdurpas' => 'Stiker Durpas',
+            'sendoktester' => 'Sendok Tester',
+            'tusukgigi' => 'Tusuk Gigi',
+            'sarungtanganplastik' => 'Sarung Tangan Plastik',
+            'handglove' => 'Sarung Tangan Plastik',
+            'handgloves' => 'Sarung Tangan Plastik',
+            'handgloveplastik' => 'Sarung Tangan Plastik',
+            'glove' => 'Sarung Tangan Plastik',
+            'tissue' => 'tissue',
+            'tisu' => 'tissue',
+            'karet' => 'karet',
+            'soakerpad' => 'soaker pad',
         ];
+
+        return $this->matchInventoryItem($aliases[$normalized] ?? $label);
+    }
+
+    private function isNonInventoryOpnameLabel(string $label): bool
+    {
+        $label = $this->normalizeLookup($label);
+
+        return $label === ''
+            || str_contains($label, 'tanggal')
+            || str_contains($label, 'tgl')
+            || str_contains($label, 'namaoutlet')
+            || str_contains($label, 'namaotlet')
+            || $label === 'outlet'
+            || $label === 'otlet'
+            || str_contains($label, 'jenisdurian')
+            || str_contains($label, 'varian')
+            || str_contains($label, 'buahutuh')
+            || str_contains($label, 'kupasfresh')
+            || str_contains($label, 'durpasfrozen');
     }
 
     private function durianOpnameItemsFromText(string $message, ?array $variety = null): array
