@@ -137,8 +137,10 @@ class ShipmentResource extends Resource
                     ->numeric()
                     ->step('0.001')
                     ->default(0)
-                    ->required(fn (Forms\Get $get) => $get('shipment_mode') !== 'inventory' && $get('product_type') !== 'Buah Utuh')
-                    ->visible(fn (Forms\Get $get) => $get('shipment_mode') !== 'inventory' && $get('product_type') !== 'Buah Utuh'),
+                    ->required(fn (Forms\Get $get) => $get('shipment_mode') !== 'inventory')
+                    ->visible(fn (Forms\Get $get) => $get('shipment_mode') !== 'inventory')
+                    ->live(onBlur: true)
+                    ->afterStateUpdated(fn (Forms\Set $set, Forms\Get $get) => self::hitungOtomatis($set, $get)),
                     
                 TextInput::make('average_weight')
                     ->label('Rata-rata Berat (KG)')
@@ -219,7 +221,7 @@ class ShipmentResource extends Resource
 
         $set('value_purchase', round($qtySentKg * $modalPrice, 2));
 
-        if ($productType !== 'Buah Utuh' && (float) ($get('qty_received_kg') ?? 0) <= 0) {
+        if ((float) ($get('qty_received_kg') ?? 0) <= 0) {
             $set('qty_received_kg', $qtySentKg);
         }
     }
@@ -290,7 +292,7 @@ class ShipmentResource extends Resource
                     ->state(fn (Shipment $record): string => $record->shipment_mode === 'inventory'
                         ? self::formatQuantity((float) $record->generic_qty_received) . ' ' . ($record->generic_unit ?: '-')
                         : (($record->product_type ?: 'Buah Utuh') === 'Buah Utuh'
-                            ? self::formatQuantity((float) $record->qty_received_butir, 0) . ' btr'
+                            ? self::formatQuantity((float) $record->qty_received_butir, 0) . ' btr / ' . self::formatQuantity((float) ($record->qty_received_kg ?: $record->qty_sent_kg)) . ' Kg'
                             : self::formatQuantity((float) ($record->qty_received_kg ?: $record->qty_sent_kg)) . ' Kg'))
                     ->sortable(query: fn (Builder $query, string $direction): Builder => $query
                         ->orderByRaw("CASE WHEN shipment_mode = 'inventory' THEN generic_qty_received WHEN COALESCE(product_type, 'Buah Utuh') = 'Buah Utuh' THEN qty_received_butir ELSE COALESCE(NULLIF(qty_received_kg, 0), qty_sent_kg) END {$direction}")),
@@ -305,16 +307,29 @@ class ShipmentResource extends Resource
                         $difference = $record->shipment_mode === 'inventory'
                             ? (float) $record->generic_qty_received - (float) $record->generic_qty_sent
                             : (($record->product_type ?: 'Buah Utuh') === 'Buah Utuh'
-                                ? (float) $record->qty_received_butir - (float) $record->qty_sent_butir
+                                ? min(
+                                    (float) $record->qty_received_butir - (float) $record->qty_sent_butir,
+                                    (float) ($record->qty_received_kg ?: $record->qty_sent_kg) - (float) $record->qty_sent_kg
+                                )
                                 : (float) ($record->qty_received_kg ?: $record->qty_sent_kg) - (float) $record->qty_sent_kg);
 
-                        return self::formatQuantity($difference, $record->shipment_mode === 'inventory' || ($record->product_type ?: 'Buah Utuh') !== 'Buah Utuh' ? 3 : 0);
+                        if ($record->shipment_mode !== 'inventory' && ($record->product_type ?: 'Buah Utuh') === 'Buah Utuh') {
+                            $differenceButir = (float) $record->qty_received_butir - (float) $record->qty_sent_butir;
+                            $differenceKg = (float) ($record->qty_received_kg ?: $record->qty_sent_kg) - (float) $record->qty_sent_kg;
+
+                            return self::formatQuantity($differenceButir, 0) . ' btr / ' . self::formatQuantity($differenceKg) . ' Kg';
+                        }
+
+                        return self::formatQuantity($difference, 3);
                     })
                     ->color(fn (Shipment $record): string => (
                         $record->shipment_mode === 'inventory'
                             ? (float) $record->generic_qty_received - (float) $record->generic_qty_sent
                             : (($record->product_type ?: 'Buah Utuh') === 'Buah Utuh'
-                                ? (float) $record->qty_received_butir - (float) $record->qty_sent_butir
+                                ? min(
+                                    (float) $record->qty_received_butir - (float) $record->qty_sent_butir,
+                                    (float) ($record->qty_received_kg ?: $record->qty_sent_kg) - (float) $record->qty_sent_kg
+                                )
                                 : (float) ($record->qty_received_kg ?: $record->qty_sent_kg) - (float) $record->qty_sent_kg)
                     ) < 0 ? 'danger' : 'gray')
                     ->sortable(query: fn (Builder $query, string $direction): Builder => $query
