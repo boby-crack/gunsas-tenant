@@ -5,7 +5,6 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\OutletResource\Pages;
 use App\Filament\Resources\OutletResource\RelationManagers\SalesTargetsRelationManager;
 use App\Models\Outlet;
-use App\Models\Shipment;
 use App\Services\StockSnapshotCalculator;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -96,8 +95,17 @@ class OutletResource extends Resource
                     ->label('Sisa Buah (Btr Est.)')
                     ->getStateUsing(function (Outlet $record) {
                         $currentKg = self::currentDurianStockKg($record, 'Buah Utuh');
-                        $shipmentKg = self::shipmentKg($record, 'Buah Utuh', 'warehouse_to_outlet');
-                        $shipmentButir = self::shipmentButir($record, 'Buah Utuh', 'warehouse_to_outlet');
+                        $shipment = \App\Models\Shipment::query()
+                            ->where('outlet_id', $record->id)
+                            ->where('shipment_direction', 'warehouse_to_outlet')
+                            ->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type'))
+                            ->selectRaw('
+                                COALESCE(SUM(CASE WHEN COALESCE(qty_received_kg, 0) > 0 THEN qty_received_kg ELSE qty_sent_kg END), 0) as total_kg,
+                                COALESCE(SUM(CASE WHEN COALESCE(qty_received_butir, 0) > 0 THEN qty_received_butir ELSE qty_sent_butir END), 0) as total_butir
+                            ')
+                            ->first();
+                        $shipmentKg = (float) ($shipment->total_kg ?? 0);
+                        $shipmentButir = (float) ($shipment->total_butir ?? 0);
                         $avgWeight = $shipmentButir > 0 ? $shipmentKg / $shipmentButir : 0;
 
                         return number_format($avgWeight > 0 ? $currentKg / $avgWeight : 0, 0, ',', '.') . ' Btr';
@@ -152,32 +160,6 @@ class OutletResource extends Resource
         return collect(self::stockSnapshotRows($outlet))
             ->where('product_type', $productType)
             ->sum('end_qty');
-    }
-
-    private static function shipmentKg(Outlet $outlet, string $productType, string $direction): float
-    {
-        return (float) Shipment::where('outlet_id', $outlet->id)
-            ->where('shipment_direction', $direction)
-            ->when(
-                $productType === 'Buah Utuh',
-                fn ($query) => $query->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type')),
-                fn ($query) => $query->where('product_type', $productType),
-            )
-            ->selectRaw('COALESCE(SUM(CASE WHEN COALESCE(qty_received_kg, 0) > 0 THEN qty_received_kg ELSE qty_sent_kg END), 0) as total')
-            ->value('total');
-    }
-
-    private static function shipmentButir(Outlet $outlet, string $productType, string $direction): float
-    {
-        return (float) Shipment::where('outlet_id', $outlet->id)
-            ->where('shipment_direction', $direction)
-            ->when(
-                $productType === 'Buah Utuh',
-                fn ($query) => $query->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type')),
-                fn ($query) => $query->where('product_type', $productType),
-            )
-            ->selectRaw('COALESCE(SUM(CASE WHEN COALESCE(qty_received_butir, 0) > 0 THEN qty_received_butir ELSE qty_sent_butir END), 0) as total')
-            ->value('total');
     }
 
     private static function stockSnapshotRows(Outlet $outlet): array
