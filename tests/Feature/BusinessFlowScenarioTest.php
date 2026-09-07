@@ -365,6 +365,165 @@ class BusinessFlowScenarioTest extends TestCase
         $this->assertNotEmpty($insights['stock_movement']['rows']);
     }
 
+    public function test_daging_olahan_stock_tracks_production_and_outlet_to_warehouse_shipments(): void
+    {
+        $this->registerSqliteCompatibilityFunctions();
+
+        $outlet = Outlet::create([
+            'name' => 'TIPTOP RAWAMANGUN',
+            'group_name' => 'tiptop',
+            'partner_share_percent' => 15,
+        ]);
+        $variety = DurianVariety::create(['name' => 'MONTHONG']);
+
+        Production::create([
+            'outlet_id' => $outlet->id,
+            'durian_variety_id' => $variety->id,
+            'date' => '2026-07-02',
+            'source_type' => Production::SOURCE_NORMAL,
+            'qty_buah_butir' => 4,
+            'qty_buah_kg' => 12,
+            'qty_kupas_pack' => 2,
+            'qty_kupas_kg' => 4,
+            'qty_olahan_pack' => 3,
+            'qty_olahan_kg' => 6.5,
+            'total_usable_meat_kg' => 10.5,
+            'shrinkage_percentage' => 12.5,
+            'multiplier_factor' => 1.14,
+        ]);
+
+        Shipment::create([
+            'outlet_id' => $outlet->id,
+            'shipment_mode' => 'durian',
+            'shipment_direction' => 'outlet_to_warehouse',
+            'product_type' => 'Daging Olahan',
+            'durian_variety_id' => $variety->id,
+            'date' => '2026-07-03',
+            'modal_price' => 0,
+            'qty_sent_butir' => 0,
+            'qty_received_butir' => 0,
+            'qty_sent_kg' => 3,
+            'qty_received_kg' => 3,
+            'average_weight' => 0,
+            'value_purchase' => 0,
+        ]);
+
+        $stock = app(StockSnapshotCalculator::class);
+
+        $this->assertFloatEquals(3.5, $stock->durianStockForOpnameDate('2026-07-03', $outlet->id, $variety->id, 'Daging Olahan'));
+        $this->assertFloatEquals(3.5, $stock->durianStockForDate('2026-07-03', $outlet->id, $variety->id, 'Daging Olahan'));
+
+        $insights = app(BusinessInsightsCalculator::class)->calculate([
+            'date_from' => '2026-07-01',
+            'date_until' => '2026-07-03',
+            'outlet_id' => $outlet->id,
+            'product_category' => 'durian',
+            'product_type' => 'Daging Olahan',
+        ], true);
+        $movement = collect($insights['stock_movement']['rows'])->firstWhere('product_type', 'Daging Olahan');
+
+        $this->assertNotNull($movement);
+        $this->assertFloatEquals(6.5, $movement['production_in_kg']);
+        $this->assertFloatEquals(3, $movement['shipment_out_kg']);
+        $this->assertFloatEquals(3.5, $movement['estimated_stock_kg']);
+        $this->assertFloatEquals(0, $insights['sales']['net_sales']);
+        $this->assertSame([], $insights['top_outlets']);
+    }
+
+    public function test_whole_fruit_opname_book_stock_subtracts_outlet_to_warehouse_shipments(): void
+    {
+        $outlet = Outlet::create([
+            'name' => 'TIPTOP DEPOK',
+            'group_name' => 'tiptop',
+            'partner_share_percent' => 15,
+        ]);
+        $variety = DurianVariety::create(['name' => 'MONTHONG']);
+
+        StockOpname::create([
+            'outlet_id' => $outlet->id,
+            'durian_variety_id' => $variety->id,
+            'date' => '2026-08-09',
+            'product_type' => 'Buah Utuh',
+            'system_qty_kg' => 58.716,
+            'physical_qty_kg' => 49.494,
+            'difference_qty_kg' => -9.222,
+        ]);
+
+        Shipment::create([
+            'outlet_id' => $outlet->id,
+            'shipment_mode' => 'durian',
+            'shipment_direction' => 'warehouse_to_outlet',
+            'product_type' => 'Buah Utuh',
+            'durian_variety_id' => $variety->id,
+            'date' => '2026-08-10',
+            'modal_price' => 0,
+            'qty_sent_butir' => 0,
+            'qty_received_butir' => 0,
+            'qty_sent_kg' => 53.718,
+            'qty_received_kg' => 53.718,
+            'average_weight' => 0,
+            'value_purchase' => 0,
+        ]);
+
+        Sale::create([
+            'outlet_id' => $outlet->id,
+            'durian_variety_id' => $variety->id,
+            'date' => '2026-08-12',
+            'buah_sold_kg' => 4.420,
+        ]);
+
+        Production::create([
+            'outlet_id' => $outlet->id,
+            'durian_variety_id' => $variety->id,
+            'date' => '2026-08-13',
+            'source_type' => Production::SOURCE_NORMAL,
+            'qty_buah_butir' => 0,
+            'qty_buah_kg' => 24.864,
+            'qty_kupas_pack' => 0,
+            'qty_kupas_kg' => 7.482,
+            'qty_olahan_pack' => 0,
+            'qty_olahan_kg' => 0.970,
+            'total_usable_meat_kg' => 8.452,
+            'shrinkage_percentage' => 0,
+            'multiplier_factor' => 0,
+        ]);
+
+        Shipment::create([
+            'outlet_id' => $outlet->id,
+            'shipment_mode' => 'durian',
+            'shipment_direction' => 'outlet_to_warehouse',
+            'product_type' => 'Buah Utuh',
+            'durian_variety_id' => $variety->id,
+            'date' => '2026-08-15',
+            'modal_price' => 0,
+            'qty_sent_butir' => 0,
+            'qty_received_butir' => 0,
+            'qty_sent_kg' => 41.656,
+            'qty_received_kg' => 41.656,
+            'average_weight' => 0,
+            'value_purchase' => 0,
+        ]);
+
+        $stock = app(StockSnapshotCalculator::class);
+
+        $this->assertFloatEquals(32.272, $stock->durianStockForOpnameDate('2026-08-16', $outlet->id, $variety->id, 'Buah Utuh'));
+
+        $snapshot = $stock->calculate([
+            'date_from' => '2026-08-10',
+            'date_until' => '2026-08-16',
+            'outlet_ids' => [$outlet->id],
+        ]);
+        $row = collect($snapshot['rows'])
+            ->where('product_type', 'Buah Utuh')
+            ->where('durian_variety_name', 'MONTHONG')
+            ->first();
+
+        $this->assertNotNull($row);
+        $this->assertFloatEquals(49.494, $row['start_qty']);
+        $this->assertFloatEquals(41.656, $row['detail']['shipment_out']);
+        $this->assertFloatEquals(32.272, $row['end_qty']);
+    }
+
     private function assertFloatEquals(float $expected, mixed $actual, float $delta = 0.01): void
     {
         $this->assertEqualsWithDelta($expected, (float) $actual, $delta);

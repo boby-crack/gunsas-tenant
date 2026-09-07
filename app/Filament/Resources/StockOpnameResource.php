@@ -97,6 +97,7 @@ class StockOpnameResource extends Resource
                         'Buah Utuh' => 'Buah Utuh',
                         'Daging Fresh' => 'Daging Fresh',
                         'Daging Frozen' => 'Daging Frozen',
+                        'Daging Olahan' => 'Daging Olahan / Reject',
                         'Inventory Item' => 'Inventory Item',
                     ])
                     ->required()
@@ -226,6 +227,7 @@ class StockOpnameResource extends Resource
             'Buah Utuh' => self::calculateWholeFruitStock((int) $outletId, (int) $varietyId, $date),
             'Daging Fresh' => self::calculateFreshStock((int) $outletId, (int) $varietyId, $date),
             'Daging Frozen' => self::calculateFrozenStock((int) $outletId, (int) $varietyId, $date),
+            'Daging Olahan' => app(StockSnapshotCalculator::class)->durianStockForOpnameDate((string) $date, (int) $outletId, (int) $varietyId, 'Daging Olahan'),
             default => 0,
         };
 
@@ -330,6 +332,7 @@ class StockOpnameResource extends Resource
                         'Buah Utuh' => 'Buah Utuh',
                         'Daging Fresh' => 'Daging Fresh',
                         'Daging Frozen' => 'Daging Frozen',
+                        'Daging Olahan' => 'Daging Olahan / Reject',
                         'Inventory Item' => 'Inventory Item',
                     ]),
 

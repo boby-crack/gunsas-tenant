@@ -88,6 +88,7 @@ class BusinessInsights extends Page implements HasForms
                                 'Buah Utuh' => 'Buah Utuh',
                                 'Daging Fresh' => 'Kupas Fresh',
                                 'Daging Frozen' => 'Durpas Frozen',
+                                'Daging Olahan' => 'Daging Olahan / Reject',
                             ])
                             ->placeholder('Semua Produk Durian')
                             ->visible(fn (Get $get): bool => $get('product_category') !== 'non_durian'),

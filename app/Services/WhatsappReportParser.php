@@ -451,6 +451,15 @@ class WhatsappReportParser
             ];
         }
 
+        if (($kg = $this->numberFromOpnameField(['daging olahan kg', 'olahan kg', 'reject kg', 'daging reject kg'], $message)) !== null) {
+            $items[] = [
+                ...$varietyData,
+                'product_type' => 'Daging Olahan',
+                'physical_qty_kg' => $kg,
+                'physical_qty_pack' => $this->numberFromOpnameField(['daging olahan pack', 'olahan pack', 'reject pack', 'daging reject pack'], $message, false),
+            ];
+        }
+
         $items = array_merge($items, $this->frozenOpnameItemsFromText($message, $variety));
 
         return $items;

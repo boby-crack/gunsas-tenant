@@ -21,6 +21,7 @@ class StockSnapshotCalculator
         'Buah Utuh' => 'Buah Utuh',
         'Daging Fresh' => 'Kupas Fresh',
         'Daging Frozen' => 'Durpas Frozen',
+        'Daging Olahan' => 'Daging Olahan / Reject',
     ];
 
     public function calculate(array $filters): array
@@ -141,7 +142,8 @@ class StockSnapshotCalculator
                         'sort' => match ($productType) {
                             'Buah Utuh' => 10,
                             'Daging Fresh' => 20,
-                            default => 30,
+                            'Daging Frozen' => 30,
+                            default => 35,
                         },
                         'outlet_id' => (int) $outlet->id,
                         'outlet_name' => $outlet->name,
@@ -262,16 +264,21 @@ class StockSnapshotCalculator
             'Buah Utuh' => $this->shipmentKgUntil($date, $outletId, $varietyId, $productType, 'warehouse_to_outlet')
                 - $this->soldKgUntil($date, $outletId, $varietyId, $productType)
                 - $this->returnKgUntil($date, $outletId, $varietyId)
-                - $this->productionKgUntil($date, $outletId, $varietyId, 'qty_buah_kg', normalOnly: true),
+                - $this->productionKgUntil($date, $outletId, $varietyId, 'qty_buah_kg', normalOnly: true)
+                - $this->shipmentKgUntil($date, $outletId, $varietyId, $productType, 'outlet_to_warehouse'),
             'Daging Fresh' => $this->productionKgUntil($date, $outletId, $varietyId, 'qty_kupas_kg')
                 + $this->shipmentKgUntil($date, $outletId, $varietyId, $productType, 'warehouse_to_outlet')
                 - $this->soldKgUntil($date, $outletId, $varietyId, $productType)
                 - $this->conversionKgUntil($date, $outletId, $varietyId, 'from_qty_kg')
                 - $this->shipmentKgUntil($date, $outletId, $varietyId, $productType, 'outlet_to_warehouse'),
-            default => $this->conversionKgUntil($date, $outletId, $varietyId, 'to_qty_kg')
+            'Daging Frozen' => $this->conversionKgUntil($date, $outletId, $varietyId, 'to_qty_kg')
                 + $this->shipmentKgUntil($date, $outletId, $varietyId, $productType, 'warehouse_to_outlet')
                 - $this->soldKgUntil($date, $outletId, $varietyId, $productType)
                 - $this->shipmentKgUntil($date, $outletId, $varietyId, $productType, 'outlet_to_warehouse'),
+            'Daging Olahan' => $this->productionKgUntil($date, $outletId, $varietyId, 'qty_olahan_kg')
+                + $this->shipmentKgUntil($date, $outletId, $varietyId, $productType, 'warehouse_to_outlet')
+                - $this->shipmentKgUntil($date, $outletId, $varietyId, $productType, 'outlet_to_warehouse'),
+            default => 0.0,
         };
     }
 
@@ -285,16 +292,21 @@ class StockSnapshotCalculator
             'Buah Utuh' => $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'warehouse_to_outlet')
                 - $this->soldKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType)
                 - $this->returnKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId)
-                - $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_buah_kg', normalOnly: true),
+                - $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_buah_kg', normalOnly: true)
+                - $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'outlet_to_warehouse'),
             'Daging Fresh' => $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_kupas_kg')
                 + $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'warehouse_to_outlet')
                 - $this->soldKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType)
                 - $this->conversionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'from_qty_kg')
                 - $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'outlet_to_warehouse'),
-            default => $this->conversionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'to_qty_kg')
+            'Daging Frozen' => $this->conversionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'to_qty_kg')
                 + $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'warehouse_to_outlet')
                 - $this->soldKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType)
                 - $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'outlet_to_warehouse'),
+            'Daging Olahan' => $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_olahan_kg')
+                + $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'warehouse_to_outlet')
+                - $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'outlet_to_warehouse'),
+            default => 0.0,
         };
     }
 
@@ -318,11 +330,14 @@ class StockSnapshotCalculator
     {
         $shipmentIn = $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'warehouse_to_outlet');
         $shipmentOut = $this->shipmentKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType, 'outlet_to_warehouse');
-        $sold = $this->soldKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType);
+        $sold = $productType === 'Daging Olahan' ? 0.0 : $this->soldKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, $productType);
         $return = $productType === 'Buah Utuh' ? $this->returnKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId) : 0.0;
-        $productionIn = $productType === 'Daging Fresh' ? $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_kupas_kg') : 0.0;
+        $productionIn = match ($productType) {
+            'Daging Fresh' => $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_kupas_kg'),
+            'Daging Olahan' => $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_olahan_kg'),
+            default => 0.0,
+        };
         $productionOut = $productType === 'Buah Utuh' ? $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_buah_kg', normalOnly: true) : 0.0;
-        $olahanReject = $productType === 'Daging Fresh' ? $this->productionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'qty_olahan_kg') : 0.0;
         $conversionIn = $productType === 'Daging Frozen' ? $this->conversionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'to_qty_kg') : 0.0;
         $conversionOut = $productType === 'Daging Fresh' ? $this->conversionKgBetween($fromExclusive, $untilInclusive, $outletId, $varietyId, 'from_qty_kg') : 0.0;
 
@@ -335,7 +350,7 @@ class StockSnapshotCalculator
                 'shipment_out' => $shipmentOut,
                 'production_in' => $productionIn,
                 'production_out' => $productionOut,
-                'olahan_reject' => $olahanReject,
+                'olahan_reject' => $productType === 'Daging Olahan' ? $productionIn : 0.0,
                 'conversion_in' => $conversionIn,
                 'conversion_out' => $conversionOut,
                 'return' => $return,
@@ -347,11 +362,14 @@ class StockSnapshotCalculator
     {
         $shipmentIn = $this->shipmentKgOnDate($date, $outletId, $varietyId, $productType, 'warehouse_to_outlet');
         $shipmentOut = $this->shipmentKgOnDate($date, $outletId, $varietyId, $productType, 'outlet_to_warehouse');
-        $sold = $this->soldKgOnDate($date, $outletId, $varietyId, $productType);
+        $sold = $productType === 'Daging Olahan' ? 0.0 : $this->soldKgOnDate($date, $outletId, $varietyId, $productType);
         $return = $productType === 'Buah Utuh' ? $this->returnKgOnDate($date, $outletId, $varietyId) : 0.0;
-        $productionIn = $productType === 'Daging Fresh' ? $this->productionKgOnDate($date, $outletId, $varietyId, 'qty_kupas_kg') : 0.0;
+        $productionIn = match ($productType) {
+            'Daging Fresh' => $this->productionKgOnDate($date, $outletId, $varietyId, 'qty_kupas_kg'),
+            'Daging Olahan' => $this->productionKgOnDate($date, $outletId, $varietyId, 'qty_olahan_kg'),
+            default => 0.0,
+        };
         $productionOut = $productType === 'Buah Utuh' ? $this->productionKgOnDate($date, $outletId, $varietyId, 'qty_buah_kg', normalOnly: true) : 0.0;
-        $olahanReject = $productType === 'Daging Fresh' ? $this->productionKgOnDate($date, $outletId, $varietyId, 'qty_olahan_kg') : 0.0;
         $conversionIn = $productType === 'Daging Frozen' ? $this->conversionKgOnDate($date, $outletId, $varietyId, 'to_qty_kg') : 0.0;
         $conversionOut = $productType === 'Daging Fresh' ? $this->conversionKgOnDate($date, $outletId, $varietyId, 'from_qty_kg') : 0.0;
 
@@ -364,7 +382,7 @@ class StockSnapshotCalculator
                 'shipment_out' => $shipmentOut,
                 'production_in' => $productionIn,
                 'production_out' => $productionOut,
-                'olahan_reject' => $olahanReject,
+                'olahan_reject' => $productType === 'Daging Olahan' ? $productionIn : 0.0,
                 'conversion_in' => $conversionIn,
                 'conversion_out' => $conversionOut,
                 'return' => $return,
@@ -412,16 +430,28 @@ class StockSnapshotCalculator
 
     private function soldKgUntil(string $date, int $outletId, int $varietyId, string $productType): float
     {
+        if ($productType === 'Daging Olahan') {
+            return 0.0;
+        }
+
         return (float) $this->saleQuery($outletId, $varietyId, $productType)->whereDate('date', '<=', $date)->sum($this->saleColumn($productType));
     }
 
     private function soldKgOnDate(string $date, int $outletId, int $varietyId, string $productType): float
     {
+        if ($productType === 'Daging Olahan') {
+            return 0.0;
+        }
+
         return (float) $this->saleQuery($outletId, $varietyId, $productType)->whereDate('date', $date)->sum($this->saleColumn($productType));
     }
 
     private function soldKgBetween(string $fromExclusive, string $untilInclusive, int $outletId, int $varietyId, string $productType): float
     {
+        if ($productType === 'Daging Olahan') {
+            return 0.0;
+        }
+
         return (float) $this->saleQuery($outletId, $varietyId, $productType)
             ->whereDate('date', '>', $fromExclusive)
             ->whereDate('date', '<=', $untilInclusive)

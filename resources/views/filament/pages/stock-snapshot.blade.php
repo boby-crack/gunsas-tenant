@@ -10,29 +10,138 @@
     @endphp
 
     <div class="space-y-4">
-        <form wire:submit.prevent="applyFilters" class="space-y-3">
-            {{ $this->form }}
+        <form
+            method="GET"
+            action="{{ url()->current() }}"
+            class="space-y-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+        >
+            <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Tanggal Awal</span>
+                    <input
+                        type="date"
+                        name="filters[date_from]"
+                        value="{{ $this->filters['date_from'] ?? now()->toDateString() }}"
+                        class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                    />
+                </label>
+
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Tanggal Akhir</span>
+                    <input
+                        type="date"
+                        name="filters[date_until]"
+                        value="{{ $this->filters['date_until'] ?? now()->toDateString() }}"
+                        class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                    />
+                </label>
+
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Grup Outlet</span>
+                    <select
+                        name="filters[outlet_group]"
+                        class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                    >
+                        <option value="">Semua Grup</option>
+                        @foreach ($this->getOutletGroupOptions() as $value => $label)
+                            <option value="{{ $value }}" @selected(($this->filters['outlet_group'] ?? null) === $value)>
+                                {{ $label }}
+                            </option>
+                        @endforeach
+                    </select>
+                </label>
+
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Outlet</span>
+                    <select
+                        name="filters[outlet_ids][]"
+                        class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                    >
+                        <option value="">Semua Outlet</option>
+                        @foreach ($this->getOutletOptions() as $value => $label)
+                            <option value="{{ $value }}" @selected(in_array((string) $value, array_map('strval', $this->filters['outlet_ids'] ?? []), true))>
+                                {{ $label }}
+                            </option>
+                        @endforeach
+                    </select>
+                </label>
+
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Kategori Produk</span>
+                    <select
+                        name="filters[product_category]"
+                        class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                    >
+                        <option value="">Semua Kategori</option>
+                        @foreach ($this->getProductCategoryOptions() as $value => $label)
+                            <option value="{{ $value }}" @selected(($this->filters['product_category'] ?? null) === $value)>
+                                {{ $label }}
+                            </option>
+                        @endforeach
+                    </select>
+                </label>
+
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Produk Durian</span>
+                    <select
+                        name="filters[product_type]"
+                        class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                    >
+                        <option value="">Semua Produk Durian</option>
+                        @foreach ($this->getDurianProductOptions() as $value => $label)
+                            <option value="{{ $value }}" @selected(($this->filters['product_type'] ?? null) === $value)>
+                                {{ $label }}
+                            </option>
+                        @endforeach
+                    </select>
+                </label>
+
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Varian</span>
+                    <select
+                        name="filters[durian_variety_id]"
+                        class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                    >
+                        <option value="">Semua Varian</option>
+                        @foreach ($this->getDurianVarietyOptions() as $value => $label)
+                            <option value="{{ $value }}" @selected((string) ($this->filters['durian_variety_id'] ?? '') === (string) $value)>
+                                {{ $label }}
+                            </option>
+                        @endforeach
+                    </select>
+                </label>
+
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Produk Non-durian</span>
+                    <select
+                        name="filters[inventory_item_id]"
+                        class="mt-2 block w-full rounded-lg border-gray-300 bg-white text-sm text-gray-950 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                    >
+                        <option value="">Semua Produk Non-durian</option>
+                        @foreach ($this->getInventoryItemOptions() as $value => $label)
+                            <option value="{{ $value }}" @selected((string) ($this->filters['inventory_item_id'] ?? '') === (string) $value)>
+                                {{ $label }}
+                            </option>
+                        @endforeach
+                    </select>
+                </label>
+            </div>
 
             <div class="gunsas-action-row">
-                <button
-                    type="button"
-                    wire:click="export"
-                    wire:loading.attr="disabled"
-                    wire:target="export"
+                <a
+                    href="{{ $this->exportUrl() }}"
+                    target="_blank"
+                    rel="noopener"
                     class="gunsas-action-button rounded-lg bg-success-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-success-500 disabled:opacity-70"
                 >
-                    <span wire:loading.remove wire:target="export">Download Excel</span>
-                    <span wire:loading wire:target="export">Menyiapkan...</span>
-                </button>
+                    Download Excel
+                </a>
 
                 <button
                     type="submit"
-                    wire:loading.attr="disabled"
-                    wire:target="applyFilters"
                     class="gunsas-action-button rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-70"
                 >
-                    <span wire:loading.remove wire:target="applyFilters">Terapkan Filter</span>
-                    <span wire:loading wire:target="applyFilters">Menerapkan...</span>
+                    Terapkan Filter
                 </button>
             </div>
         </form>

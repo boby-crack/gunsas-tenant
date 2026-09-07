@@ -86,6 +86,7 @@ class ListShipments extends ListRecords
                 [
                     ['2026-07-03', 'TIPTOP RAWAMANGUN', 'gudang_ke_outlet', 'durian', 'buah_utuh', 'MONTHONG', 66000, 20, 20, 67.5, 67.5, '', '', ''],
                     ['2026-07-13', 'TIPTOP RAWAMANGUN', 'outlet_ke_gudang', 'durian', 'frozen', 'MONTHONG', '', '', '', 12.5, 12.5, '', '', ''],
+                    ['2026-07-14', 'TIPTOP RAWAMANGUN', 'outlet_ke_gudang', 'durian', 'olahan', 'MONTHONG', '', '', '', 5.25, 5.25, '', '', ''],
                     ['2026-07-13', 'TOTAL BUAH BSD', 'gudang_ke_outlet', 'inventory', '', '', '', '', '', '', '', 'Pancake Durian', 10, 10],
                 ],
             ),

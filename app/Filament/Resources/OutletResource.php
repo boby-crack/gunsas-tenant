@@ -5,11 +5,6 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\OutletResource\Pages;
 use App\Filament\Resources\OutletResource\RelationManagers\SalesTargetsRelationManager;
 use App\Models\Outlet;
-use App\Models\Shipment;
-use App\Models\Production;
-use App\Models\ProductConversion;
-use App\Models\ProductReturn;
-use App\Models\Sale;
 use App\Services\StockSnapshotCalculator;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -126,10 +121,9 @@ class OutletResource extends Resource
                     })->color('info'),
 
                 TextColumn::make('stok_olahan_kg')
-                    ->label('Gudang Olahan (KG)')
+                    ->label('Stok Olahan (KG)')
                     ->getStateUsing(function (Outlet $record) {
-                        $olahanMasuk = Production::where('outlet_id', $record->id)->sum('qty_olahan_kg');
-                        return number_format($olahanMasuk, 3, ',', '.') . ' Kg';
+                        return number_format(self::currentDurianStockKg($record, 'Daging Olahan'), 3, ',', '.') . ' Kg';
                     }),
             ])
             ->filters([
@@ -152,19 +146,6 @@ class OutletResource extends Resource
             ]);
     }
 
-    private static function shipmentKg(Outlet $outlet, string $productType, string $direction): float
-    {
-        return (float) Shipment::where('outlet_id', $outlet->id)
-            ->where('shipment_direction', $direction)
-            ->when(
-                $productType === 'Buah Utuh',
-                fn ($query) => $query->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type')),
-                fn ($query) => $query->where('product_type', $productType),
-            )
-            ->selectRaw('COALESCE(SUM(CASE WHEN COALESCE(qty_received_kg, 0) > 0 THEN qty_received_kg ELSE qty_sent_kg END), 0) as total')
-            ->value('total');
-    }
-
     private static function currentDurianStockKg(Outlet $outlet, string $productType): float
     {
         return collect(self::stockSnapshotRows($outlet))
@@ -185,19 +166,6 @@ class OutletResource extends Resource
         }
 
         return self::$stockSnapshotCache[$key];
-    }
-
-    private static function shipmentButir(Outlet $outlet, string $productType, string $direction): float
-    {
-        return (float) Shipment::where('outlet_id', $outlet->id)
-            ->where('shipment_direction', $direction)
-            ->when(
-                $productType === 'Buah Utuh',
-                fn ($query) => $query->where(fn ($query) => $query->where('product_type', 'Buah Utuh')->orWhereNull('product_type')),
-                fn ($query) => $query->where('product_type', $productType),
-            )
-            ->selectRaw('COALESCE(SUM(CASE WHEN COALESCE(qty_received_butir, 0) > 0 THEN qty_received_butir ELSE qty_sent_butir END), 0) as total')
-            ->value('total');
     }
 
     public static function getRelations(): array

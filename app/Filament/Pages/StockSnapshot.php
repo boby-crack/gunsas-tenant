@@ -2,26 +2,14 @@
 
 namespace App\Filament\Pages;
 
-use App\Exports\StockSnapshotExport;
 use App\Models\DurianVariety;
 use App\Models\InventoryItem;
 use App\Models\Outlet;
 use App\Services\StockSnapshotCalculator;
-use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Section;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Concerns\InteractsWithForms;
-use Filament\Forms\Contracts\HasForms;
-use Filament\Forms\Form;
-use Filament\Forms\Get;
-use Filament\Forms\Set;
 use Filament\Pages\Page;
-use Maatwebsite\Excel\Facades\Excel;
 
-class StockSnapshot extends Page implements HasForms
+class StockSnapshot extends Page
 {
-    use InteractsWithForms;
-
     protected static ?string $navigationIcon = 'heroicon-o-clipboard-document-check';
 
     protected static ?string $navigationLabel = 'Sisa Stok';
@@ -40,109 +28,56 @@ class StockSnapshot extends Page implements HasForms
 
     public function mount(): void
     {
-        $this->form->fill([
-            'date_from' => now()->toDateString(),
-            'date_until' => now()->toDateString(),
-            'outlet_group' => null,
-            'outlet_ids' => [],
-            'product_category' => null,
-            'product_type' => null,
-            'durian_variety_id' => null,
-            'inventory_item_id' => null,
-        ]);
+        $this->filters = $this->filtersFromRequest();
 
         $this->refreshSnapshot();
     }
 
-    public function form(Form $form): Form
+    public function getOutletGroupOptions(): array
     {
-        return $form
-            ->schema([
-                Section::make('Filter Stok')
-                    ->schema([
-                        DatePicker::make('date_from')
-                            ->label('Tanggal Awal')
-                            ->required(),
-
-                        DatePicker::make('date_until')
-                            ->label('Tanggal Akhir')
-                            ->required(),
-
-                        Select::make('outlet_group')
-                            ->label('Grup Outlet')
-                            ->options(Outlet::GROUPS)
-                            ->placeholder('Semua Grup')
-                            ->live()
-                            ->afterStateUpdated(fn (Set $set) => $set('outlet_ids', [])),
-
-                        Select::make('outlet_ids')
-                            ->label('Outlet')
-                            ->options(fn (Get $get) => $this->outletOptions($get('outlet_group')))
-                            ->placeholder('Semua Outlet')
-                            ->multiple()
-                            ->searchable()
-                            ->preload(),
-
-                        Select::make('product_category')
-                            ->label('Kategori Produk')
-                            ->options([
-                                'durian' => 'Produk Durian',
-                                'non_durian' => 'Produk Non-durian',
-                            ])
-                            ->placeholder('Semua Kategori')
-                            ->live()
-                            ->afterStateUpdated(function (Set $set): void {
-                                $set('product_type', null);
-                                $set('durian_variety_id', null);
-                                $set('inventory_item_id', null);
-                            }),
-
-                        Select::make('product_type')
-                            ->label('Produk Durian')
-                            ->options([
-                                'Buah Utuh' => 'Buah Utuh',
-                                'Daging Fresh' => 'Kupas Fresh',
-                                'Daging Frozen' => 'Durpas Frozen',
-                            ])
-                            ->placeholder('Semua Produk Durian')
-                            ->visible(fn (Get $get): bool => $get('product_category') !== 'non_durian'),
-
-                        Select::make('durian_variety_id')
-                            ->label('Varian')
-                            ->options(fn () => DurianVariety::query()->orderBy('name')->pluck('name', 'id')->all())
-                            ->placeholder('Semua Varian')
-                            ->searchable()
-                            ->visible(fn (Get $get): bool => $get('product_category') !== 'non_durian'),
-
-                        Select::make('inventory_item_id')
-                            ->label('Produk Non-durian')
-                            ->options(fn () => InventoryItem::query()->orderBy('name')->pluck('name', 'id')->all())
-                            ->placeholder('Semua Produk Non-durian')
-                            ->searchable()
-                            ->visible(fn (Get $get): bool => $get('product_category') === 'non_durian'),
-                    ])
-                    ->columns(3),
-            ])
-            ->statePath('filters');
+        return Outlet::GROUPS;
     }
 
-    public function applyFilters(): void
+    public function getOutletOptions(): array
     {
-        $this->refreshSnapshot();
+        return Outlet::query()
+            ->when(filled($this->filters['outlet_group'] ?? null), fn ($query) => $query->where('group_name', Outlet::normalizeGroupName($this->filters['outlet_group'])))
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
     }
 
-    public function export()
+    public function getProductCategoryOptions(): array
     {
-        $this->refreshSnapshot();
+        return [
+            'durian' => 'Produk Durian',
+            'non_durian' => 'Produk Non-durian',
+        ];
+    }
 
-        $filters = $this->snapshotData['filters'] ?? [];
-        $dateFrom = $filters['date_from'] ?? $filters['date'] ?? now()->toDateString();
-        $dateUntil = $filters['date_until'] ?? $dateFrom;
+    public function getDurianProductOptions(): array
+    {
+        return [
+            'Buah Utuh' => 'Buah Utuh',
+            'Daging Fresh' => 'Kupas Fresh',
+            'Daging Frozen' => 'Durpas Frozen',
+            'Daging Olahan' => 'Daging Olahan / Reject',
+        ];
+    }
 
-        return Excel::download(
-            new StockSnapshotExport($this->snapshotData),
-            "laporan-sisa-stok-{$dateFrom}-{$dateUntil}.xlsx",
-        );
+    public function getDurianVarietyOptions(): array
+    {
+        return DurianVariety::query()->orderBy('name')->pluck('name', 'id')->all();
+    }
+
+    public function getInventoryItemOptions(): array
+    {
+        return InventoryItem::query()->orderBy('name')->pluck('name', 'id')->all();
+    }
+
+    public function exportUrl(): string
+    {
+        return route('reports.stock-snapshot.export', $this->exportFilters());
     }
 
     public function getSnapshotProperty(): array
@@ -159,12 +94,39 @@ class StockSnapshot extends Page implements HasForms
         $this->snapshotData = app(StockSnapshotCalculator::class)->calculate($this->filters ?? []);
     }
 
-    private function outletOptions(?string $group = null): array
+    private function filtersFromRequest(): array
     {
-        return Outlet::query()
-            ->when(filled($group), fn ($query) => $query->where('group_name', Outlet::normalizeGroupName($group)))
-            ->orderBy('name')
-            ->pluck('name', 'id')
+        $filters = request()->input('filters', []);
+        $outletIds = $filters['outlet_ids'] ?? [];
+
+        if (! is_array($outletIds)) {
+            $outletIds = filled($outletIds) ? [$outletIds] : [];
+        }
+
+        $productCategory = in_array($filters['product_category'] ?? null, ['durian', 'non_durian'], true)
+            ? $filters['product_category']
+            : null;
+
+        $productType = in_array($filters['product_type'] ?? null, array_keys($this->getDurianProductOptions()), true)
+            ? $filters['product_type']
+            : null;
+
+        return [
+            'date_from' => filled($filters['date_from'] ?? null) ? $filters['date_from'] : now()->toDateString(),
+            'date_until' => filled($filters['date_until'] ?? null) ? $filters['date_until'] : now()->toDateString(),
+            'outlet_group' => Outlet::normalizeGroupName($filters['outlet_group'] ?? null),
+            'outlet_ids' => collect($outletIds)->filter(fn ($id) => filled($id))->map(fn ($id) => (string) $id)->values()->all(),
+            'product_category' => $productCategory,
+            'product_type' => $productCategory === 'non_durian' ? null : $productType,
+            'durian_variety_id' => $productCategory === 'non_durian' ? null : (filled($filters['durian_variety_id'] ?? null) ? (string) $filters['durian_variety_id'] : null),
+            'inventory_item_id' => $productCategory === 'durian' ? null : (filled($filters['inventory_item_id'] ?? null) ? (string) $filters['inventory_item_id'] : null),
+        ];
+    }
+
+    private function exportFilters(): array
+    {
+        return collect($this->filters ?? [])
+            ->reject(fn ($value): bool => $value === null || $value === '' || $value === [])
             ->all();
     }
 }

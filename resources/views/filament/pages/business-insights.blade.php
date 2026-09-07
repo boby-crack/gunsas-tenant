@@ -394,6 +394,7 @@
                     <div class="flex items-start justify-between gap-3"><dt class="text-gray-500">Buah Utuh</dt><dd class="shrink-0 text-right font-medium">{{ $kg($insights['inventory']['buah_kg']) }}</dd></div>
                     <div class="flex items-start justify-between gap-3"><dt class="text-gray-500">Kupas Fresh</dt><dd class="shrink-0 text-right font-medium">{{ $kg($insights['inventory']['fresh_kg']) }}</dd></div>
                     <div class="flex items-start justify-between gap-3"><dt class="text-gray-500">Durpas Frozen</dt><dd class="shrink-0 text-right font-medium">{{ $kg($insights['inventory']['frozen_kg']) }}</dd></div>
+                    <div class="flex items-start justify-between gap-3"><dt class="text-gray-500">Olahan / Reject</dt><dd class="shrink-0 text-right font-medium">{{ $kg($insights['inventory']['olahan_kg'] ?? 0) }}</dd></div>
                     @if (($insights['inventory']['inventory_item_amount'] ?? 0) > 0)
                         <div class="border-t border-gray-200 pt-3 dark:border-gray-800"></div>
                         <div class="flex items-start justify-between gap-3">

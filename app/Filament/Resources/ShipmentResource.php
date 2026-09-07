@@ -57,6 +57,7 @@ class ShipmentResource extends Resource
                         'Buah Utuh' => 'Buah Utuh',
                         'Daging Fresh' => 'Kupas Fresh',
                         'Daging Frozen' => 'Durpas Frozen',
+                        'Daging Olahan' => 'Daging Olahan / Reject',
                     ])
                     ->default('Buah Utuh')
                     ->required(fn (Forms\Get $get) => $get('shipment_mode') !== 'inventory')
@@ -379,6 +380,7 @@ class ShipmentResource extends Resource
                         'Buah Utuh' => 'Buah Utuh',
                         'Daging Fresh' => 'Kupas Fresh',
                         'Daging Frozen' => 'Durpas Frozen',
+                        'Daging Olahan' => 'Daging Olahan / Reject',
                     ]),
 
                 Tables\Filters\SelectFilter::make('durian_variety_id')

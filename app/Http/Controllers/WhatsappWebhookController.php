@@ -521,6 +521,7 @@ class WhatsappWebhookController extends Controller
                 'Buah Utuh' => 'Buah utuh',
                 'Daging Fresh' => 'Kupas fresh',
                 'Daging Frozen' => 'Durpas frozen',
+                'Daging Olahan' => 'Olahan/reject',
                 default => $item['product_type'] ?? 'Produk durian',
             };
 

@@ -76,6 +76,7 @@ class StockOpnamesImport extends BaseExcelImport
 
         return match (true) {
             str_contains($normalized, 'inventory'), str_contains($normalized, 'item') => 'Inventory Item',
+            str_contains($normalized, 'olahan'), str_contains($normalized, 'reject'), str_contains($normalized, 'rusak'), str_contains($normalized, 'afkir') => 'Daging Olahan',
             str_contains($normalized, 'fresh') => 'Daging Fresh',
             str_contains($normalized, 'frozen'), str_contains($normalized, 'durpas') => 'Daging Frozen',
             default => 'Buah Utuh',

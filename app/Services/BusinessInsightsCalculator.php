@@ -182,7 +182,7 @@ class BusinessInsightsCalculator
 
         $productType = $filters['product_type'] ?? null;
 
-        return in_array($productType, ['Buah Utuh', 'Daging Fresh', 'Daging Frozen'], true)
+        return in_array($productType, ['Buah Utuh', 'Daging Fresh', 'Daging Frozen', 'Daging Olahan'], true)
             ? $productType
             : null;
     }
@@ -216,6 +216,7 @@ class BusinessInsightsCalculator
             'Buah Utuh' => 'Buah Utuh',
             'Daging Fresh' => 'Kupas Fresh',
             'Daging Frozen' => 'Durpas Frozen',
+            'Daging Olahan' => 'Daging Olahan / Reject',
             default => 'Semua Produk',
         };
     }
@@ -269,6 +270,7 @@ class BusinessInsightsCalculator
             'Buah Utuh' => 'Buah Utuh',
             'Daging Fresh' => 'Kupas Fresh',
             'Daging Frozen' => 'Durpas Frozen',
+            'Daging Olahan' => 'Daging Olahan / Reject',
         ];
     }
 
@@ -418,6 +420,21 @@ class BusinessInsightsCalculator
         $fallbackPartnerShare = $this->configuredPartnerShare($outletId);
         $productType = $this->selectedProductType($filters);
         $productCategory = $this->selectedProductCategory($filters);
+
+        if ($productType === 'Daging Olahan') {
+            return [
+                'gross_sales' => 0.0,
+                'discount_amount' => 0.0,
+                'sales_return_amount' => 0.0,
+                'net_sales' => 0.0,
+                'buah_sold_kg' => 0.0,
+                'fresh_sold_kg' => 0.0,
+                'frozen_sold_kg' => 0.0,
+                'partner_cut' => 0.0,
+                'gunsas_revenue' => 0.0,
+                'partner_share_percent' => $fallbackPartnerShare,
+            ];
+        }
 
         $query = $this->periodQuery(Sale::query(), $filters, $outletId)
             ->leftJoin('outlets', 'sales.outlet_id', '=', 'outlets.id');
@@ -997,6 +1014,13 @@ class BusinessInsightsCalculator
                 ->sum('to_qty_kg');
         }
 
+        if ($productType === 'Daging Olahan') {
+            $productionInKg = (float) $this->periodQuery(Production::query(), $filters, $outletId)
+                ->where('durian_variety_id', $varietyId)
+                ->sum('qty_olahan_kg');
+            $soldKg = 0.0;
+        }
+
         $receivedKg = $shipmentInKg + $productionInKg + $conversionInKg;
         $outKg = $soldKg + $shipmentOutKg + $returnKg + $productionOutKg + $conversionOutKg;
         $estimatedStockKg = $startKg + $receivedKg - $outKg;
@@ -1038,6 +1062,10 @@ class BusinessInsightsCalculator
 
     private function soldKg(array $filters, int $outletId, int $varietyId, string $productType): float
     {
+        if ($productType === 'Daging Olahan') {
+            return 0.0;
+        }
+
         $column = match ($productType) {
             'Daging Fresh' => 'fresh_sold_kg',
             'Daging Frozen' => 'frozen_sold_kg',
@@ -1123,6 +1151,7 @@ class BusinessInsightsCalculator
             'Buah Utuh' => 'Buah Utuh',
             'Daging Fresh' => 'Kupas Fresh',
             'Daging Frozen' => 'Durpas Frozen',
+            'Daging Olahan' => '__no_sales__',
             default => null,
         };
         $allowedCategory = $selectedInventoryItemId ? null : $allowedCategory;
@@ -2103,6 +2132,11 @@ class BusinessInsightsCalculator
     private function topOutlets(array $filters, mixed $outletId): array
     {
         $productType = $this->selectedProductType($filters);
+
+        if ($productType === 'Daging Olahan') {
+            return [];
+        }
+
         $revenueExpression = match ($productType) {
             'Buah Utuh' => 'COALESCE(buah_subtotal, 0)',
             'Daging Fresh' => 'COALESCE(fresh_subtotal, 0)',
@@ -2139,6 +2173,7 @@ class BusinessInsightsCalculator
         $buahKg = $includeDurian && (! $productType || $productType === 'Buah Utuh') ? $this->snapshotStockKg($snapshotRows, 'Buah Utuh', $varietyId) : 0.0;
         $freshKg = $includeDurian && (! $productType || $productType === 'Daging Fresh') ? $this->snapshotStockKg($snapshotRows, 'Daging Fresh', $varietyId) : 0.0;
         $frozenKg = $includeDurian && (! $productType || $productType === 'Daging Frozen') ? $this->snapshotStockKg($snapshotRows, 'Daging Frozen', $varietyId) : 0.0;
+        $olahanKg = $includeDurian && (! $productType || $productType === 'Daging Olahan') ? $this->snapshotStockKg($snapshotRows, 'Daging Olahan', $varietyId) : 0.0;
         $freshRecoveryRemainingKg = $includeDurian && (! $productType || $productType === 'Daging Fresh')
             ? min($freshKg, (float) $this->freshRecoveryFlow($filters, $outletId)['remaining_kg'])
             : 0.0;
@@ -2154,7 +2189,8 @@ class BusinessInsightsCalculator
             'fresh_recovery_kg' => $freshRecoveryRemainingKg,
             'fresh_recovery_amount_excluded' => $freshRecoveryRemainingKg * $avgModalFresh,
             'frozen_kg' => $frozenKg,
-            'total_kg' => $buahKg + $freshKg + $frozenKg,
+            'olahan_kg' => $olahanKg,
+            'total_kg' => $buahKg + $freshKg + $frozenKg + $olahanKg,
             'durian_amount' => $durianAmount,
             'inventory_item_qty' => array_sum(array_column($inventoryItems, 'qty')),
             'inventory_item_amount' => $inventoryItemAmount,

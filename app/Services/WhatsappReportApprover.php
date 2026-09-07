@@ -306,6 +306,7 @@ class WhatsappReportApprover
             'Buah Utuh' => $this->wholeFruitStock($outletId, $varietyId, $date),
             'Daging Fresh' => $this->freshStock($outletId, $varietyId, $date),
             'Daging Frozen' => $this->frozenStock($outletId, $varietyId, $date),
+            'Daging Olahan' => app(StockSnapshotCalculator::class)->durianStockForOpnameDate((string) $date, $outletId, $varietyId, 'Daging Olahan'),
             default => 0,
         };
     }

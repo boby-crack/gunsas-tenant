@@ -74,6 +74,7 @@ class ListStockOpnames extends ListRecords
                 [
                     ['2026-07-21', 'TIPTOP RAWAMANGUN', 'MONTHONG', '', 'Buah Utuh', '', 118.2, '', '', '', '', 'buku_kg dan selisih_kg boleh kosong, sistem hitung otomatis'],
                     ['2026-07-21', 'TIPTOP RAWAMANGUN', 'MONTHONG', '', 'Daging Fresh', '', 10.75, '', '', '', '', 'Contoh SO kupas fresh'],
+                    ['2026-07-21', 'TIPTOP RAWAMANGUN', 'MONTHONG', '', 'Daging Olahan', '', 4.5, '', '', '', '', 'Contoh SO daging olahan/reject'],
                     ['2026-07-21', 'TIPTOP RAWAMANGUN', '', 'Thinwall', 'Inventory Item', '', 72, '', '', 'pcs', '', 'item_terpakai dan modal_satuan boleh kosong, sistem hitung otomatis'],
                     ['2026-07-21', 'TIPTOP RAWAMANGUN', '', 'Stiker Batang', 'Inventory Item', '', 150, '', '', 'pcs', '', 'Contoh SO item inventory'],
                 ],
