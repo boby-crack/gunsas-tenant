@@ -10,8 +10,10 @@ use App\Policies\OperationalModelPolicy;
 use App\Policies\UserPolicy;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
+use Livewire\Livewire;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -28,6 +30,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Livewire::setUpdateRoute(function ($handle) {
+            return Route::post('/admin/livewire/update', $handle)
+                ->middleware('web');
+        });
+
         $appUrl = (string) config('app.url');
         $appHost = parse_url($appUrl, PHP_URL_HOST);
 

@@ -84,6 +84,7 @@ class ExpenseResource extends Resource
 public static function table(Table $table): Table
 {
     return $table
+        ->modifyQueryUsing(fn (Builder $query) => $query->with('outlet'))
         ->columns([
             Tables\Columns\TextColumn::make('id')->label('ID')->sortable()->searchable()->toggleable(),
             Tables\Columns\TextColumn::make('date')->label('Tanggal')->date()->sortable(),
@@ -98,6 +99,8 @@ public static function table(Table $table): Table
             Tables\Columns\TextColumn::make('notes')->label('Keterangan')->searchable()->sortable(),
         ])
         ->defaultSort('date', 'desc')
+        ->paginated([10, 25, 50, 100])
+        ->defaultPaginationPageOption(10)
         ->filters([
             Tables\Filters\SelectFilter::make('outlet_id')
                 ->label('Alokasi Cabang')

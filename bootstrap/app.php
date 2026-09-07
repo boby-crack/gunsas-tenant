@@ -21,6 +21,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $csrfExcept = [
             'webhook/whatsapp',
             'livewire/update',
+            'livewire/*',
+            'admin/livewire/update',
+            '*/livewire/update',
         ];
 
         $middleware->validateCsrfTokens(except: $csrfExcept);
